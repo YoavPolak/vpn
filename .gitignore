@@ -1,0 +1,6 @@
+./.venv/
+./pypacker/
+./vpn/__pycache__/
+./tests/__pycache__/
+./vpn/utils/__pycache__/
+./central_server/__pycache__/

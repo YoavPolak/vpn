@@ -1,0 +1,101 @@
+HANDLE ALL CLIENT ERRORS AND MAKE IT LOOK BETTER
+HMAC
+VPN PROTOCOL and HMAC FULL VPN HEADER + PAYLOAD
+DATABASE
+STATE MANAGEMENT AND CLIENTS KEYS
+GUI
+DNS
+
+Maybe I will have to change things this way:
+Header will not contain session token 
+
+No, the **HMAC shared key** should not be the same as the **AES key**.
+
+- Use the **AES key** for encrypting the entire packet (header + payload).
+- Use the **auth token** (or a separate shared key) for the **HMAC** to verify integrity.
+
+This way, AES handles confidentiality, and HMAC ensures integrity/authentication.
+No need for the auth token to be shared each time
+
+AES_KEY encrypts/decrypts the entire packet.
+AUTH_TOKEN is used for HMAC to verify the integrity and authenticity of the packet.
+HMAC ensures the packet's authenticity, while AES ensures its confidentiality.
+
+State Management
+State management in VPNs refers to the process of tracking and maintaining session information for each connected client.
+The session store (which can be in-memory or in a persistent database) stores critical data like session keys, client identities, and connection states.
+Session lookups allow the server to decrypt the data correctly by matching the incoming packet to the right session.
+Session expiration ensures that resources are freed up when sessions are no longer active.
+The state of the session (active, idle, disconnected, etc.).
+
+Architecture:
+
+VPN Server -> DB State Management
+import redis
+
+r = redis.Redis(host='localhost', port=6379, db=0)
+
+def create_session(client_id, session_key, ip):
+    r.set(client_id, {'session_key': session_key, 'ip': ip, 'status': 'active'})
+
+def get_session(client_id):
+    return r.get(client_id)
+
+def expire_session(client_id):
+    r.delete(client_id)
+
+Central Server -> Has also a db to save the clients
+
+
+TLS handshake happens first, establishing a secure connection between the client and server.
+Authentication (client sends credentials like username/password) happens after the TLS handshake, but since the connection is already encrypted, the credentials are secure.
+Once authenticated, the secure VPN tunnel is established, and encrypted data transfer begins.
+
+TLS handshake Architecture
+In short, the **OpenVPN TLS handshake** works as follows:
+
+1. **ClientHello**: The client sends a message to the server proposing encryption methods and parameters.
+2. **ServerHello**: The server responds, agreeing on the encryption method and sending its certificate (for server authentication).
+3. **Key Exchange**: The server and client exchange key material (using RSA or Diffie-Hellman) to establish a shared secret.
+4. **Session Key Creation**: Both the server and client generate a **session key** based on the exchanged key material.
+5. **Secure Tunnel Established**: Once the session key is established, all communication is encrypted, and the **authentication** happens (e.g., username/password).
+
+This ensures that both the server and client can communicate securely before any sensitive data (like credentials) is exchanged.
+
+
+
+Yes, exactly. The **VPN server** needs to verify the session token with the **central server** to confirm if it's valid. This process ensures that the client is properly authenticated before the VPN server grants access.
+
+### Flow (with token validation):
+
+1. **Client -> Central Server**: The client authenticates with the central server (providing credentials like username and password).
+2. **Central Server -> Client**: If the credentials are valid, the central server returns a **session token**.
+3. **Client -> VPN Server**: The client sends the **session token** to the appropriate VPN server to initiate the VPN connection.
+4. **VPN Server -> Central Server**: The VPN server sends a request to the central server, asking if the **session token** is valid.
+5. **Central Server -> VPN Server**: The central server verifies the session token and responds with whether it is valid or not.
+6. **VPN Server**: If the session token is valid, the VPN server proceeds with establishing the VPN session. If the token is invalid, the VPN server rejects the connection.
+
+This way, the VPN server relies on the central server to verify the session token, ensuring that the client is authenticated before allowing access to the VPN network.
+
+
+Create len field protocol
+Encryptions
+Encapsualtion and Decapsulation mechanisim
+VPN Packet Struct
+
+
+
+Initial connection:
+
+The client and server begin by establishing an encrypted channel.
+This should be done using a method like RSA or Diffie-Hellman (DH) key exchange, but not the final session key (such as an AES key) yet.
+Login Credentials:
+
+The client sends login credentials (username/password) over this secure channel (which has been encrypted via RSA/DH) — this ensures that login credentials are safe from eavesdropping.
+Authentication:
+
+The server decrypts the login credentials using the established secure channel, checks them against the user database, and either authenticates the user or rejects them.
+Final Shared AES Key:
+
+After successful authentication, the server and client agree on a final AES key.
+This AES key can now be used to secure all further communication between the client and server.

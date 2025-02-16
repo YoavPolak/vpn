@@ -1,0 +1,8 @@
+fastapi 
+uvicorn
+pypacker
+IPy
+requests
+sqlalchemy 
+passlib[bcrypt] 
+pyjwt
