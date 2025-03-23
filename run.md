@@ -11,7 +11,7 @@ To start the **Central Server**, navigate to the server directory and run the `u
 
 ```bash
 cd ./central_server
-uvicorn central_server:app --reload
+uvicorn central_server:app --host 0.0.0.0 --reload
 ```
 
 - **Explanation**: The `cd ./central_server` command navigates to the directory where the server code is located. The `uvicorn` command starts the FastAPI application with `--reload` to automatically reload the server when you make changes to the code.
@@ -58,5 +58,6 @@ ping -I tun1 google.com
 
 These commands will help you set up and test the central server, VPN server, VPN client, and VPN connectivity. Be sure to follow each step carefully and ensure you have the necessary permissions to run commands with `sudo`.
 
+`sudo ip route add default dev tun1` Need to do it after the tun is built
 ---
 ```

@@ -35,6 +35,9 @@ class Server:
         # For now it uses it this way. But later I believe it will be handles from the state handler or db and the client will be deleted after expiried
         self._private_key, self._public_key = generate_rsa_keys()
 
+        #Common variables
+        self.handshake_response : bytes = b"Handshake successful."
+
 
     def route_traffic_to(self, tun_dev: 'tun.Device') -> 'Server':
         self._tun_device = tun_dev
@@ -47,7 +50,7 @@ class Server:
         self._tun_read_thread.start()
 
         while True:
-            packet, client_addr = self._sock.recvfrom(1549) #4096 #Calculate how many bytes I should read instead
+            packet, client_addr = self._sock.recvfrom(4096) #4096 #Calculate how many bytes I should read instead #1549
             new_thread = Thread(target=self.on_packet, args=(packet, client_addr,))
             new_thread.start()
 
@@ -102,7 +105,6 @@ class Server:
                 payload = self.handle_new_packet_proccessing(packet, client_addr)
                 if payload: self.dev_handle_data_packet(payload, client_addr)
 
-                # self.handle_data_packet(packet, client_addr)
             elif current_state == ClientState.TIMED_OUT:
                 logging.warning(f"Handshake timed out for {client_addr}.")
                 self.send_error_response(client_addr, "Handshake timeout")
@@ -153,14 +155,18 @@ class Server:
             self._clients_db[client_addr] = [aes_key, (auth_token, expiration_time)]
 
             # Step 7: Respond to the client (encrypt the response before sending)
-            handshake_response = self.create_handshake_response()
-            encrypted_response = aes_encrypt(aes_key, handshake_response)
+            encrypted_response = aes_encrypt(aes_key, self.handshake_response) #Potential response handshake_respobse.|tun_ip
+            # encrypted_response = aes_encrypt(aes_key, self.handshake_response(client_addr))
             self._sock.sendto(encrypted_response, client_addr)
 
             logging.info(f"Handshake successful with {client_addr}. AES key established.")
             print("Handshake successful")
         except:
             self.send_error_response(client_addr, "Authentication failed. and Handshake failed") #Maybe send it using AES
+
+    def create_handshake_response(self, client_addr) -> bytes:
+        """Create a handshake success response message"""
+        return self.handshake_response + "\n\n" + self._addr_allocator.new(hash(client_addr))
 
     def verify_auth_token(self, auth_token: str) -> bool | str: #HTTP things No need to touch it
         """Verify auth_token by sending a request to an external service"""
@@ -192,34 +198,10 @@ class Server:
             logging.warning(f"Token verification failed for {auth_token} with status code {response.status_code}.")
             return False
 
-    def create_handshake_response(self): #Unecessary, evantually needs to be removed
-        """Create a handshake success response message"""
-        return b"Handshake successful."
-
     def parse_handshake(self, packet: bytes):
         """Parse the handshake packet into the AES key and auth token"""
         header, enc_aes_key, enc_auth_token, pub_key = packet.split(b'\n\n')
         return enc_aes_key, enc_auth_token, pub_key
-
-    def handle_data_packet(self, packet: bytes, client_addr: net.Address) -> None: #Should be removed soon
-        """Handle encrypted data packets after successful authentication"""
-        # packet = bytearray(packet)
-        logging.debug(f"Handling data from {client_addr}")
-
-        #Decryption part.
-        #TODO Add the headers things which means i need to add parse packet for the vpn protocl
-        # Furthermore I have to add to check in the headers if the client is the client using the auth machenisam and add hmac
-        client_aes_key = self._clients_db[client_addr][0]
-        decrypted_packet = aes_decrypt(client_aes_key, packet) 
-
-        new_tun_ip = self._addr_allocator.new(hash(client_addr))
-        decrypted_packet = bytearray(decrypted_packet)
-        #Basicaly move it to somewhere else maybe depends. I'll see while building
-
-        self._nat.out(decrypted_packet, new_tun_ip, client_addr)
-
-        logging.debug('tun0 send: %s', packet)
-        self._tun_device.write(decrypted_packet)
 
     def handle_new_packet_proccessing(self, packet: bytes, client_addr: net.Address) -> bytes | None:
         #Need to add the logic of checking if the packet is correct using the vpn_protocol
@@ -249,7 +231,7 @@ class Server:
         logging.debug(f"Handling data from {client_addr}")
         packet = bytearray(packet)
 
-        new_tun_ip = self._addr_allocator.new(hash(client_addr))
+        new_tun_ip = self._addr_allocator.new(hash(client_addr)) #TODO Send this to the client in order for him to have this ip
         self._nat.out(packet, new_tun_ip, client_addr)
 
         logging.debug('tun0 send: %s', packet)

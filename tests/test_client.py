@@ -90,11 +90,12 @@ class VPNClient:
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PublicFormat.SubjectPublicKeyInfo,
             )
-            #TODO Build a real function to create this data e.g build_handshake_response
-            msg = b"VPN1\n\n" + encrypt_with_rsa(server_public_key, self.aes_key) + b"\n\n" + encrypt_with_rsa(server_public_key, self.session_token.encode()) + b"\n\n" + serialized_public_key
+
+            handshake_response = self.build_handshake_response(server_public_key, serialized_public_key)
+            
             # Send the encrypted message
             print("Sending encrypted message...")
-            sock.sendto(msg, self.server_address)
+            sock.sendto(handshake_response, self.server_address)
 
             res, _ = sock.recvfrom(4096)  #From now on, all communication is encrypted with aes 256
             if(res.startswith(b'ERROR')): # TODO MTU TO READ 1504
@@ -106,8 +107,11 @@ class VPNClient:
             print(f"Error from server: {res.decode()}")
             return False
 
-    def build_handshake_response(self, ) -> bytes:
-        pass
+    def build_handshake_response(self, server_public_key, serialized_public_key) -> bytes:
+        encrypted_aes_key = encrypt_with_rsa(server_public_key, self.aes_key)
+        encrypted_session_token = encrypt_with_rsa(server_public_key, self.session_token.encode())
+
+        return b"VPN1\n\n" + encrypted_aes_key + b"\n\n" + encrypted_session_token + b"\n\n" + serialized_public_key
 
     def handle_new_packet_proccessing(self, packet: bytes) -> bytes | None:
         #Need to add the logic of checking if the packet is correct using the vpn_protocol
@@ -145,8 +149,6 @@ class VPNClient:
         while True:
             packet = self.tun_dev.read()
             # TODO: save packets to pcap file (you can implement this feature here)
-            # encrypted_packet = aes_encrypt(self.aes_key, packet)
-            # self.server_sock.sendto(encrypted_packet, self.server_address)
             """
             1. Build vpn packet
             2. encrypt vpn packet
@@ -166,9 +168,7 @@ class VPNClient:
         """Handle incoming responses from the VPN server."""
         while True:
             packet, addr = self.server_sock.recvfrom(4069)
-            # decrypted_packet = aes_decrypt(self.aes_key, packet)
             print("Received packet from the server")
-            # self.tun_dev.write(decrypted_packet)
             payload = self.handle_new_packet_proccessing(packet)
             if payload != None: self.tun_dev.write(payload)
 

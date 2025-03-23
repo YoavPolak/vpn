@@ -1,6 +1,6 @@
 fastapi 
 uvicorn
-pypacker
+pypacker==5.4
 IPy
 requests
 sqlalchemy 
