@@ -63,9 +63,6 @@ class Server:
             if client_addr is not None:
                 logging.debug("conn send: %s", packet)
 
-                # client_aes_key = self._clients_db[client_addr][0]
-                # packet = aes_encrypt(client_aes_key, bytes(packet))
-                # # packet = bytesarray(aes_encrypt(client_aes_key, bytes(packet))) possible
                 """
                 1. Build vpn_packet
                 2. encrypt vpn packet
@@ -77,10 +74,9 @@ class Server:
                 encrypted_vpn_pkt = aes_encrypt(cl_aes_key, vpn_pkt)
                 cl_auth_tkn = self._clients_db[client_addr][1][0]
                 udp_pkt = proto.build_udp_packet(encrypted_vpn_pkt, cl_auth_tkn.encode())
-                self._sock.sendto(udp_pkt, client_addr)#Need to add the full vpn proto logic here
+                self._sock.sendto(udp_pkt, client_addr)
 
-                # self._sock.sendto(packet, client_addr)#Need to add the full vpn proto logic here
-
+    #This is need to be done
     def on_packet(self, packet: bytes, client_addr: net.Address) -> None:
         logging.debug('Received packet from %s: %s', client_addr, packet)
         #Need to add the logic of checking if the packet is correct using the vpn_protocol
@@ -155,18 +151,18 @@ class Server:
             self._clients_db[client_addr] = [aes_key, (auth_token, expiration_time)]
 
             # Step 7: Respond to the client (encrypt the response before sending)
-            encrypted_response = aes_encrypt(aes_key, self.handshake_response) #Potential response handshake_respobse.|tun_ip
-            # encrypted_response = aes_encrypt(aes_key, self.handshake_response(client_addr))
+            encrypted_response = aes_encrypt(aes_key, self.create_handshake_response(client_addr))
             self._sock.sendto(encrypted_response, client_addr)
 
             logging.info(f"Handshake successful with {client_addr}. AES key established.")
             print("Handshake successful")
-        except:
+        except Exception as e:
+            print(e)
             self.send_error_response(client_addr, "Authentication failed. and Handshake failed") #Maybe send it using AES
 
-    def create_handshake_response(self, client_addr) -> bytes:
+    def create_handshake_response(self, client_addr : net.Address) -> bytes:
         """Create a handshake success response message"""
-        return self.handshake_response + "\n\n" + self._addr_allocator.new(hash(client_addr))
+        return self.handshake_response + b"\n\n" + self._addr_allocator.new(hash(client_addr)).encode()
 
     def verify_auth_token(self, auth_token: str) -> bool | str: #HTTP things No need to touch it
         """Verify auth_token by sending a request to an external service"""

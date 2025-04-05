@@ -101,7 +101,12 @@ class VPNClient:
             if(res.startswith(b'ERROR')): # TODO MTU TO READ 1504
                 raise Exception
             print(res) #Check for errors
-            print(aes_decrypt(self.aes_key, res))
+            decrypted_res = aes_decrypt(self.aes_key, res)
+            print(decrypted_res)
+            if (not decrypted_res.startswith(b"Handshake successful.")): return False
+
+            tun_ip = decrypted_res.split(b"\n\n")[1].decode()
+            self.tun_device_ip = tun_ip
             return True
         except Exception as e:
             print(f"Error from server: {res.decode()}")
@@ -128,7 +133,11 @@ class VPNClient:
             return payload
         except Exception as e:
             print(e)
-           
+    
+    def set_tun_dev_up (self, tun_ip : str):
+        self.tun_dev.addr = tun_ip
+        self.tun_dev.up()
+
     def start(self) -> None:
         """Start the VPN client."""
         # First, authenticate the user
@@ -139,7 +148,7 @@ class VPNClient:
 
         # Bring the TUN device up
         #TODO Implement the things that it takes the ip from the server or something but it might not be neccessery
-        self.tun_dev.up()
+        self.set_tun_dev_up(self.tun_device_ip)
 
         # Create a separate thread to handle the response from the server
         response_thread = Thread(target=self.on_response)
