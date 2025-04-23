@@ -26,6 +26,10 @@ from .hmac import generate_hmac, verify_hmac
 from vpn.utils.encryption_methods import aes_encrypt, aes_decrypt
 
 class vpn_protocol:
+    PROTO_VERSION : bytes = b"VPN1"
+    VERSION = 1
+    HMAC_SIZE = 32  # SHA-256 output is 32 bytes
+    LEN_FIELD_SIZE = 2  # 2 bytes for the length field
 
     # Build length field
     @staticmethod

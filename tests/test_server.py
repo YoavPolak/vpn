@@ -32,7 +32,7 @@ class Server:
         self._addr_allocator = net.AddrAllocator('10.0.0.0/24')
         self._clients = {}  # Keep track of clients states for now {client_addr : STATE, ...}
         self._clients_db = {} # Keep track of clients for now   {client_addr : [AES_Key, (AUTH_TOKEN, expiration_time) ]}
-        # For now it uses it this way. But later I believe it will be handles from the state handler or db and the client will be deleted after expiried
+        # For now it uses it this way. But later I believe it will be handles from the state handler or db and the client will be deleted after expired
         self._private_key, self._public_key = generate_rsa_keys()
 
         #Common variables
@@ -51,8 +51,11 @@ class Server:
 
         while True:
             packet, client_addr = self._sock.recvfrom(4096) #4096 #Calculate how many bytes I should read instead #1549
-            new_thread = Thread(target=self.on_packet, args=(packet, client_addr,))
-            new_thread.start()
+            if packet:
+                new_thread = Thread(target=self.on_packet, args=(packet, client_addr,))
+                new_thread.start()
+            else:
+                self.disconnect_client(client_addr)
 
     def on_tun_recv(self) -> None:
         while True:
@@ -79,24 +82,19 @@ class Server:
     #This is need to be done
     def on_packet(self, packet: bytes, client_addr: net.Address) -> None:
         logging.debug('Received packet from %s: %s', client_addr, packet)
-        #Need to add the logic of checking if the packet is correct using the vpn_protocol
-        #1. Will use extract_vpn_packet(packet, client_auth_token) -> encrypted payload
-        #2. decrypt packet using shared aes key with the client
-        #3. protocl.extract_payload(packet) -> inner_packet
-        #forward it to the right function
-        #TODO CHECK WHEN TO USE THE VPN_PROTOCL AND BUILD MESSAGES AND STUFF EG FUNCTION
 
         if client_addr not in self._clients:
             # Initialize client state to HANDSHAKE for handshake
             self.init_handshake(packet, client_addr)
+            #ClientState.HANDSHAKE
         else:
-            # Check client state before handling the packet 
+            # Checks client state before handling the packet 
             current_state = self._clients.get(client_addr, ClientState.DISCONNECTED)
 
             #For now I assume every step works
             if current_state == ClientState.HANDSHAKE:
-                self.handle_handshake(packet, client_addr)  # RSA key exchange and share creds
-                #state should be handled only within the function
+                self.handle_handshake(packet, client_addr)  # RSA key exchange and share creds, to authenticate the user.
+                #ClientState.AUTHENTICATED
             elif current_state == ClientState.AUTHENTICATED:
                 payload = self.handle_new_packet_proccessing(packet, client_addr)
                 if payload: self.dev_handle_data_packet(payload, client_addr)
@@ -104,30 +102,40 @@ class Server:
             elif current_state == ClientState.TIMED_OUT:
                 logging.warning(f"Handshake timed out for {client_addr}.")
                 self.send_error_response(client_addr, "Handshake timeout")
+                #TODO add the logic in the client to handle this
+                #TODO add the logic to handle TIMEOUT in the server
+                #Possibly make something with redis that when i user is timed out maybe wait like 5 min till he can try again or something
+            elif current_state == ClientState.DISCONNECTED:
+                #TODO clean the data maybe, need to think about it
+                pass
+                #TODO do it with redis like clean everything
             else:
                 logging.warning(f"Unexpected packet from {client_addr} in state {current_state}.")
 
     def init_handshake(self, packet: bytes, client_addr: net.Address) -> None:
-        if packet[:4] != b'VPN1': #Change it later
-            logging.error(f"Invalid handshake packet from {client_addr}")
-            # self._clients[client_addr] = ClientState.TIMED_OUT
-            return
+        try:
+            if packet[:4] != proto.PROTO_VERSION: #Change it later
+                logging.error(f"Invalid handshake packet from {client_addr}")
+                # self._clients[client_addr] = ClientState.TIMED_OUT
+                return
 
-        # Send server's public key to the client
-        serialized_public_key = self._public_key.public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
-        self._sock.sendto(serialized_public_key, client_addr)
+            # Send server's public key to the client
+            serialized_public_key = self._public_key.public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo,
+            )
+            self._sock.sendto(serialized_public_key, client_addr)
 
-        self._clients[client_addr] = ClientState.HANDSHAKE
-        print("here")
-        logging.info(f"Initiating handshake with {client_addr}")
+            self._clients[client_addr] = ClientState.HANDSHAKE
+            logging.info(f"Initiating handshake with {client_addr}")
+        except Exception as e:
+            print(f"[*]ERROR initiating handshake for {client_addr}:", e)
 
     def handle_handshake(self, packet: bytes, client_addr: net.Address) -> None:
         logging.info(f"Handling handshake from {client_addr}")   
         """
-        Client Packet -> rsa_encrypted[ VPN1|AES_Key|Session_Token|Public_Client_key ]
+        Client Packet -> 
+        rsa_encrypted[VPN1|AES_Key|Session_Token|Public_Client_key]
         """
         try:
             # Step 1: Parse the encrypted packet to get the AES key and auth_token
@@ -200,13 +208,13 @@ class Server:
         return enc_aes_key, enc_auth_token, pub_key
 
     def handle_new_packet_proccessing(self, packet: bytes, client_addr: net.Address) -> bytes | None:
-        #Need to add the logic of checking if the packet is correct using the vpn_protocol
-        #1. Will use extract_vpn_packet(packet, client_auth_token) -> encrypted payload
-        #2. decrypt packet using shared aes key with the client
-        #3. protocl.extract_payload(packet) -> inner_packet
-        #forward it to the right function
-        #TODO CHECK WHEN TO USE THE VPN_PROTOCL AND BUILD MESSAGES AND STUFF EG FUNCTION
-        # self._clients_db[client_addr] = [aes_key, (auth_token, expiration_time)]
+        """
+        1. Will use extract_vpn_packet(packet, client_auth_token) -> encrypted payload
+        2. decrypt packet using shared aes key with the client
+        3. protocl.extract_payload(packet) -> inner_packet
+        forward it to the right function
+        self._clients_db[client_addr] = [aes_key, (auth_token, expiration_time)]
+        """
         try:
             # FOR NOW I assume all auth_tokens are not expired yet.
             cl_auth_tkn = self._clients_db[client_addr][1][0]
@@ -227,12 +235,17 @@ class Server:
         logging.debug(f"Handling data from {client_addr}")
         packet = bytearray(packet)
 
-        new_tun_ip = self._addr_allocator.new(hash(client_addr)) #TODO Send this to the client in order for him to have this ip
+        new_tun_ip = self._addr_allocator.new(hash(client_addr)) #Send virtual ip to client.
         self._nat.out(packet, new_tun_ip, client_addr)
 
         logging.debug('tun0 send: %s', packet)
         self._tun_device.write(packet)
 
+    def disconnect_client (self, client_addr: net.Address):
+        if client_addr in self._clients:
+            del self._clients[client_addr]
+            del self._clients_db[client_addr]
+        print(f"{client_addr} disconnected")
     def send_error_response(self, client_addr: net.Address, message: str) -> None:
         """Send an error response to the client"""
         error_response = f"ERROR: {message}".encode()

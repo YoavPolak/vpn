@@ -1,26 +1,41 @@
 import socket
 from threading import Thread, Timer
 import logging
-from enum import Enum
+from enum import Enum, auto
 from typing import Tuple
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import serialization, hashes
 from vpn.utils.encryption_methods import *
+from vpn.utils.valid_ip import is_valid_ip
 import requests
+from requests.exceptions import RequestException
 import os
 from .vpn_protocol import vpn_protocol as proto
 
 from vpn import tun, ip, net
+
+from enum import Enum, auto
+
+class State(Enum):
+    UNINITIALIZED = auto()         # No attempt yet
+    HANDSHAKE_STARTED = auto()     # Sent initial request
+    TOKEN_RECEIVED = auto()        # Got token from central server
+    AUTHENTICATED = auto()         # Token validated, handshake successed, ready to proceed
+    FAILED = auto()                # Some failure happened
+    TIMEOUT = auto()               # Request timed out
+    INVALID_RESPONSE = auto()      # Server sent junk
+
+
+
+
 #Need to add ERROR HANDLING
 class VPNClient:
     #Add state handling too
     # INITIAL, HANDSHAKE, SECURED...
-    def __init__(self, tun_device_name: str, tun_device_ip: str, server_address: tuple, username: str, password: str) -> None:
+    def __init__(self, tun_device_name: str, tun_device_ip: str, server_address: tuple) -> None:
         self.tun_device_name = tun_device_name
         self.tun_device_ip = tun_device_ip
         self.server_address = server_address
-        self.username = username
-        self.password = password
 
         #cryptography Variables
         self._private_key, self._public_key = generate_rsa_keys()
@@ -33,56 +48,62 @@ class VPNClient:
         self.server_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
         # Placeholder for session token
-        self.session_token = None #In the server it called auth_token so change it later #TODO
+        self.session_token = None #In the server it's called auth_token so change it later #TODO
 
-        #VPN Headers
-        self.proto_version = b"VPN1"
+        #init state
+        self.state: State = State.UNINITIALIZED
 
-    def _signup(self) -> bool:
-        url = f"{BASE_URL}/signup"
-        payload = {
-            "username": "testuser1",
-            "password": "testpassword"
-        }
-        
-        response = requests.post(url, json=payload)
-        print("Signup Response:", response.json())
-        return response.status_code == 200
-
-    def _login(self) -> bool:
-        """Authenticate the user against the central server."""
-        url = "http://localhost:8000/login"
-
-        # Define the login credentials
-        login_data = {
-            "username": self.username, 
-            "password": self.password
-        }
-
-        # Send the POST request to the central server
-        response = requests.post(url, json=login_data)
-
-        # Check if the request was successful
-        if response.status_code == 200:
-            # Successfully authenticated, handle the response (e.g., extract session token)
-            data = response.json()
-            self.session_token = data.get("session_token")
-            print("Login successful!")
-            print("Session Token:", self.session_token)
-            return True
-        else:
-            # Authentication failed
-            print("Login failed:", response.json().get("detail"))
+    def signup(self, domain:str,username, password, email):
+        try:
+            response = requests.post(f"http://{domain}:8000/signup", json={
+                "username": username,
+                "email": email,
+                "password": password
+            })
+            print(response.json())
+            return response.status_code == 200
+        except:
             return False
 
-    def handle_handshake(self) -> bool: #TODO Need to handle error cases
+    def receive_token(self, username: str, password: str, domain : str) -> bool:
+        """Authenticate the user against the central server."""
+        url = f"http://{domain}:8000/login"
+        login_data = {
+            "username": username,
+            "password": password
+        }
+
+        try:
+            response = requests.post(url, json=login_data, timeout=5)
+            response.raise_for_status()  # Raises HTTPError for bad responses (4xx or 5xx)
+
+            data = response.json()
+            self.session_token = data.get("session_token")
+
+            if self.session_token:
+                print("Login successful!")
+                print("Session Token:", self.session_token)
+                self.state = State.TOKEN_RECEIVED
+            else:
+                print("Login failed: No session token received.")
+                return False
+
+        except RequestException as e:
+            print(f"Request error during login: {e}")
+            return False
+        except ValueError:
+            # .json() raised an error, likely due to invalid JSON
+            print("Login failed: Invalid response format (not JSON).")
+            return False
+
+    def handle_handshake(self): #TODO Need to handle error cases
         try:
             sock = self.server_sock
-            sock.sendto(b"VPN1", self.server_address)
+            sock.sendto(proto.PROTO_VERSION, self.server_address)
 
             serialized_server_public_key, _ = sock.recvfrom(4096)
             server_public_key = serialization.load_pem_public_key(serialized_server_public_key)
-            self.aes_key = os.urandom(32)  # AES-256
+            self.aes_key = os.urandom(32)  # AES-256 key
             #Client Packet -> rsa_encrypted[ VPN1|AES_Key|Session_Token|Public_Client_key ]
 
             # Create the message to send (including AES key, session token, and public key)
@@ -98,25 +119,30 @@ class VPNClient:
             sock.sendto(handshake_response, self.server_address)
 
             res, _ = sock.recvfrom(4096)  #From now on, all communication is encrypted with aes 256
-            if(res.startswith(b'ERROR')): # TODO MTU TO READ 1504
+            if(res.startswith(b'ERROR')):#TODO finish this weird error handaling
                 raise Exception
             print(res) #Check for errors
             decrypted_res = aes_decrypt(self.aes_key, res)
             print(decrypted_res)
-            if (not decrypted_res.startswith(b"Handshake successful.")): return False
+            if (not decrypted_res.startswith(b"Handshake successful.")): raise Exception
 
             tun_ip = decrypted_res.split(b"\n\n")[1].decode()
-            self.tun_device_ip = tun_ip
-            return True
-        except Exception as e:
-            print(f"Error from server: {res.decode()}")
-            return False
+            if not is_valid_ip(tun_ip):
+                raise ValueError(f"Invalid IP address provided: {tun_ip}")
 
-    def build_handshake_response(self, server_public_key, serialized_public_key) -> bytes:
+            self.tun_device_ip = tun_ip
+
+            self.state = State.AUTHENTICATED #Client is authenticed to the vpn server
+        except Exception as e:
+            print("Handshake failed.")
+            print(f"Error from server: {res.decode()}")
+            print(f"Provided error: {e}")
+
+    def build_handshake_response(self, server_public_key, serialized_public_key) -> bytes:#TODO: Maybe change the 'VPN1'
         encrypted_aes_key = encrypt_with_rsa(server_public_key, self.aes_key)
         encrypted_session_token = encrypt_with_rsa(server_public_key, self.session_token.encode())
 
-        return b"VPN1\n\n" + encrypted_aes_key + b"\n\n" + encrypted_session_token + b"\n\n" + serialized_public_key
+        return proto.PROTO_VERSION + b"\n\n" + encrypted_aes_key + b"\n\n" + encrypted_session_token + b"\n\n" + serialized_public_key
 
     def handle_new_packet_proccessing(self, packet: bytes) -> bytes | None:
         #Need to add the logic of checking if the packet is correct using the vpn_protocol
@@ -134,21 +160,28 @@ class VPNClient:
         except Exception as e:
             print(e)
     
-    def set_tun_dev_up (self, tun_ip : str):
+    def set_tun_dev_up (self, tun_ip : str = '10.1.0.1'):
         self.tun_dev.addr = tun_ip
         self.tun_dev.up()
 
+    def login(self, username: str, password: str, domain : str): #TODO Add a limit like timeout later.
+            if self.state == State.UNINITIALIZED:
+                self.receive_token(username, password,"localhost")
+            if self.state == State.TOKEN_RECEIVED:
+                self.handle_handshake()
+    
+    def disconnect(self):
+        sock = self.server_sock
+        sock.sendto(b'', self.server_address)
+        print("Disconnected")
+        self.state = State.TOKEN_RECEIVED
+
     def start(self) -> None:
         """Start the VPN client."""
-        # First, authenticate the user
-        if not self._login():
-            return  # Stop if login fails
-        if not self.handle_handshake():
-            return
 
         # Bring the TUN device up
-        #TODO Implement the things that it takes the ip from the server or something but it might not be neccessery
-        self.set_tun_dev_up(self.tun_device_ip)
+        # self.set_tun_dev_up(self.tun_device_ip) #TODO Set this instead of the other durign production (not local work)
+        self.set_tun_dev_up()
 
         # Create a separate thread to handle the response from the server
         response_thread = Thread(target=self.on_response)
@@ -157,12 +190,12 @@ class VPNClient:
         # Main loop for reading from TUN device and sending data to the server
         while True:
             packet = self.tun_dev.read()
-            # TODO: save packets to pcap file (you can implement this feature here)
+            # TODO: save packets to pcap file
             """
-            1. Build vpn packet
-            2. encrypt vpn packet
-            3. build udp packet
-            4. send to server udp packet
+            1. Build vpn packets
+            2. encrypt vpn packets
+            3. build udp packets
+            4. send to server udp packets
             """
             vpn_pkt = proto.build_vpn_packet(packet)
             encrypted_vpn_pkt = aes_encrypt(self.aes_key, vpn_pkt)
@@ -186,12 +219,18 @@ def main() -> None:
     # Server address to connect to
     server_addr = ('127.0.0.1', 3000)
 
+    # Initialize and start the VPN client
+    vpn_client = VPNClient(tun_device_name='tun1', tun_device_ip='10.1.0.1', server_address=server_addr)
+
+    #Add state management logic here too
+    # First, authenticate the user
     # User credentials for login
     username = "testuser3"
     password = "testpassword"
+    #For now i do it with if statements later i will change it to swithc conditions
+    #self.signup() #TODO GUI between these two.
+    self.login("localhost")
 
-    # Initialize and start the VPN client
-    vpn_client = VPNClient(tun_device_name='tun1', tun_device_ip='10.1.0.1', server_address=server_addr, username=username, password=password)
     vpn_client.start()
 
 
