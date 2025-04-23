@@ -15,6 +15,8 @@ from .vpn_protocol import vpn_protocol as proto
 from vpn import tun, ip, net
 
 from enum import Enum, auto
+from queue import Queue
+from concurrent.futures import ThreadPoolExecutor
 
 class State(Enum):
     UNINITIALIZED = auto()         # No attempt yet
@@ -24,9 +26,6 @@ class State(Enum):
     FAILED = auto()                # Some failure happened
     TIMEOUT = auto()               # Request timed out
     INVALID_RESPONSE = auto()      # Server sent junk
-
-
-
 
 #Need to add ERROR HANDLING
 class VPNClient:
@@ -39,7 +38,7 @@ class VPNClient:
 
         #cryptography Variables
         self._private_key, self._public_key = generate_rsa_keys()
-        self._aes_key = None
+        self.aes_key = None
 
         # Initialize the TUN device
         self.tun_dev = tun.Device(self.tun_device_name, self.tun_device_ip)
@@ -53,7 +52,13 @@ class VPNClient:
         #init state
         self.state: State = State.UNINITIALIZED
 
-    def signup(self, domain:str,username, password, email):
+        # Queue for packets
+        self.packet_queue = Queue()
+
+        # ThreadPoolExecutor for concurrent tasks
+        self.executor = ThreadPoolExecutor(max_workers=2)
+
+    def signup(self, domain:str, username, password, email):
         try:
             response = requests.post(f"http://{domain}:8000/signup", json={
                 "username": username,
@@ -132,7 +137,7 @@ class VPNClient:
 
             self.tun_device_ip = tun_ip
 
-            self.state = State.AUTHENTICATED #Client is authenticed to the vpn server
+            self.state = State.AUTHENTICATED #Client is authenticated to the vpn server
         except Exception as e:
             print("Handshake failed.")
             print(f"Error from server: {res.decode()}")
@@ -166,10 +171,10 @@ class VPNClient:
 
     def login(self, username: str, password: str, domain : str): #TODO Add a limit like timeout later.
             if self.state == State.UNINITIALIZED:
-                self.receive_token(username, password,"localhost")
+                self.receive_token(username, password, "localhost")
             if self.state == State.TOKEN_RECEIVED:
                 self.handle_handshake()
-    
+
     def disconnect(self):
         sock = self.server_sock
         sock.sendto(b'', self.server_address)
@@ -180,7 +185,6 @@ class VPNClient:
         """Start the VPN client."""
 
         # Bring the TUN device up
-        # self.set_tun_dev_up(self.tun_device_ip) #TODO Set this instead of the other durign production (not local work)
         self.set_tun_dev_up()
 
         # Create a separate thread to handle the response from the server
@@ -190,6 +194,18 @@ class VPNClient:
         # Main loop for reading from TUN device and sending data to the server
         while True:
             packet = self.tun_dev.read()
+            self.packet_queue.put(packet)  # Add the packet to the queue for processing
+            # Process the packet in the background
+            self.executor.submit(self.process_packet_from_queue)
+
+        # Ensure the response thread finishes before exiting
+        response_thread.join()
+        self.server_sock.close()
+
+    def process_packet_from_queue(self):
+        """Process packets from the queue."""
+        while not self.packet_queue.empty():
+            packet = self.packet_queue.get()  # Get the next packet from the queue
             # TODO: save packets to pcap file
             """
             1. Build vpn packets
@@ -202,17 +218,14 @@ class VPNClient:
             udp_pkt = proto.build_udp_packet(encrypted_vpn_pkt, self.session_token.encode())
             self.server_sock.sendto(udp_pkt, self.server_address)
 
-        # Ensure the response thread finishes before exiting
-        response_thread.join()
-        self.server_sock.close()
-
     def on_response(self) -> None:
         """Handle incoming responses from the VPN server."""
         while True:
             packet, addr = self.server_sock.recvfrom(4069)
             print("Received packet from the server")
             payload = self.handle_new_packet_proccessing(packet)
-            if payload != None: self.tun_dev.write(payload)
+            if payload != None: 
+                self.tun_dev.write(payload)
 
 
 def main() -> None:
@@ -222,14 +235,11 @@ def main() -> None:
     # Initialize and start the VPN client
     vpn_client = VPNClient(tun_device_name='tun1', tun_device_ip='10.1.0.1', server_address=server_addr)
 
-    #Add state management logic here too
+    # Add state management logic here too
     # First, authenticate the user
     # User credentials for login
-    username = "testuser3"
-    password = "testpassword"
-    #For now i do it with if statements later i will change it to swithc conditions
-    #self.signup() #TODO GUI between these two.
-    self.login("localhost")
+    test = "test"
+    vpn_client.login(test, test, "localhost")
 
     vpn_client.start()
 
