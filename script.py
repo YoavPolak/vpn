@@ -1,7 +1,8 @@
 import socket
-from threading import Thread, Timer
+from threading import Thread
 import logging
 from enum import Enum, auto
+import time
 from typing import Tuple
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import serialization, hashes
@@ -17,6 +18,7 @@ from vpn import tun, ip, net
 from enum import Enum, auto
 from queue import Queue
 from concurrent.futures import ThreadPoolExecutor
+import select
 
 class State(Enum):
     UNINITIALIZED = auto()         # No attempt yet
@@ -150,15 +152,9 @@ class VPNClient:
         return proto.PROTO_VERSION + b"\n\n" + encrypted_aes_key + b"\n\n" + encrypted_session_token + b"\n\n" + serialized_public_key
 
     def handle_new_packet_proccessing(self, packet: bytes) -> bytes | None:
-        #Need to add the logic of checking if the packet is correct using the vpn_protocol
-        #1. Will use extract_vpn_packet(packet, client_auth_token) -> encrypted payload
-        #2. decrypt packet using shared aes key with the client
-        #3. protocl.extract_payload(packet) -> inner_packet
-        #forward it to the right function
         try:
-            # FOR NOW I assume all auth_tokens are not expired yet.
-            encrypted_vpn_pkt = proto.extract_vpn_packet(packet, self.session_token.encode()) #Returns the encrypted vpn_packet, with aes encryption
-            if encrypted_vpn_pkt == None: return None #Handle bad hmac or dont forward it idk
+            encrypted_vpn_pkt = proto.extract_vpn_packet(packet, self.session_token.encode()) 
+            if encrypted_vpn_pkt == None: return None
             decrypted_vpn_pkt = aes_decrypt(self.aes_key, encrypted_vpn_pkt)
             payload = proto.extract_payload(decrypted_vpn_pkt)
             return payload
@@ -169,7 +165,7 @@ class VPNClient:
         self.tun_dev.addr = tun_ip
         self.tun_dev.up()
 
-    def login(self, username: str, password: str, domain : str): #TODO Add a limit like timeout later.
+    def login(self, username: str, password: str, domain : str):
             if self.state == State.UNINITIALIZED:
                 self.receive_token(username, password, "localhost")
             if self.state == State.TOKEN_RECEIVED:
@@ -183,37 +179,24 @@ class VPNClient:
 
     def start(self) -> None:
         """Start the VPN client."""
-
-        # Bring the TUN device up
-        # self.set_tun_dev_up(self.tun_device_ip) #TODO Set this instead of the other durign production (not local work)
         self.set_tun_dev_up()
 
-        # Create a separate thread to handle the response from the server
+        # Use select to ensure non-blocking operation with socket
         response_thread = Thread(target=self.on_response)
         response_thread.start()
 
-        # Main loop for reading from TUN device and sending data to the server
         while True:
             packet = self.tun_dev.read()
-            self.packet_queue.put(packet)  # Add the packet to the queue for processing
-            # Process the packet in the background
+            self.packet_queue.put(packet)  
             self.executor.submit(self.process_packet_from_queue)
+            time.sleep(0.01)  # Add a slight delay to avoid busy waiting and reduce CPU usage
 
-        # Ensure the response thread finishes before exiting
         response_thread.join()
         self.server_sock.close()
 
     def process_packet_from_queue(self):
-        """Process packets from the queue."""
         while not self.packet_queue.empty():
-            packet = self.packet_queue.get()  # Get the next packet from the queue
-            # TODO: save packets to pcap file
-            """
-            1. Build vpn packets
-            2. encrypt vpn packets
-            3. build udp packets
-            4. send to server udp packets
-            """
+            packet = self.packet_queue.get() 
             vpn_pkt = proto.build_vpn_packet(packet)
             encrypted_vpn_pkt = aes_encrypt(self.aes_key, vpn_pkt)
             udp_pkt = proto.build_udp_packet(encrypted_vpn_pkt, self.session_token.encode())
@@ -222,28 +205,10 @@ class VPNClient:
     def on_response(self) -> None:
         """Handle incoming responses from the VPN server."""
         while True:
-            packet, addr = self.server_sock.recvfrom(4069)
-            print("Received packet from the server")
-            payload = self.handle_new_packet_proccessing(packet)
-            if payload != None: 
-                self.tun_dev.write(payload)
+            ready = select.select([self.server_sock], [], [], 1)
+            if ready[0]:
+                packet, addr = self.server_sock.recvfrom(4069)
+                payload = self.handle_new_packet_proccessing(packet)
+                if payload != None:
+                    self.tun_dev.write(payload)
 
-
-def main() -> None:
-    # Server address to connect to
-    server_addr = ('127.0.0.1', 3000)
-
-    # Initialize and start the VPN client
-    vpn_client = VPNClient(tun_device_name='tun1', tun_device_ip='10.1.0.1', server_address=server_addr)
-
-    # Add state management logic here too
-    # First, authenticate the user
-    # User credentials for login
-    test = "test"
-    vpn_client.login(test, test, "localhost")
-
-    vpn_client.start()
-
-
-if __name__ == '__main__':
-    main()
