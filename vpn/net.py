@@ -64,6 +64,10 @@ class NAT:
     def __init__(self) -> None:
         self._records = {}
 
+    def remove_translation(self, server_tun_ip: str, client_addr: Address):
+        if server_tun_ip in self._records:
+            del self._records[server_tun_ip]
+
     def out(self, packet: bytearray, server_tun_ip: str,
             client_addr: Address) -> None:
         """Do NAT for outgoing packet.

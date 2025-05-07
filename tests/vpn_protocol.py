@@ -1,10 +1,10 @@
 """
 encrypted
 +--------------------+--------------------------------------------------+--------------------------------------------------+
-|   Length Field     |                 Encrypted Packet                 |                    HMAC                          |
+|     Session ID     |                 Encrypted Packet                 |                    HMAC                          |
 +--------------------+--------------------------------------------------+--------------------------------------------------+
 |  0x000174          |  0x93a5f3b41f2c20e7...                           |  0x9a6f8d7bdb47c91a9f3f2437ac0198f92b149b92b7fdf |
-|  (2 bytes)         |  (Encrypted header and payload, variable length) |  (32 bytes: HMAC-SHA-256)                        |
+|  (4 bytes)         |  (Encrypted header and payload, variable length) |  (32 bytes: HMAC-SHA-256)                        |
 |                    |                                                  |  (HMAC SHA256 over the entire encrypted packet)  |
 +--------------------+--------------------------------------------------+--------------------------------------------------+
 the purpose if the hmac is to make sure the encrypted packet isnt corapted
@@ -17,93 +17,82 @@ Encapsulated Packet
 |                    |  A.K.A Inner Packet        |
 |                    |                            |
 +--------------------+----------------------------+
+
+[ session_id (36 bytes) | AES-encrypted payload | HMAC (32 bytes) ]
 """
 
-# You can handle retransmission or error handling here if needed
-
 import struct
+import os
+
 from .hmac import generate_hmac, verify_hmac
 from vpn.utils.encryption_methods import aes_encrypt, aes_decrypt
 
 class vpn_protocol:
-    PROTO_VERSION : bytes = b"VPN1"
+    PROTO_VERSION: bytes = b"VPN1"
     VERSION = 1
     HMAC_SIZE = 32  # SHA-256 output is 32 bytes
-    LEN_FIELD_SIZE = 2  # 2 bytes for the length field
+    SESSION_ID_FIELD_SIZE = 36
 
-    # Build length field
     @staticmethod
-    def build_len_field(packet: bytes) -> bytes:
-        length = len(packet)
-        # Pack the length as a 2-byte (16-bit) integer
-        return struct.pack('!H', length)
-
-    # Build UDP packet
-    @staticmethod
-    def build_udp_packet(encrypted_payload: bytes, auth_token) -> bytes:
+    def build_udp_packet(encrypted_payload: bytes, auth_token: bytes, session_id: bytes) -> bytes:
+        """
+        Constructs full UDP VPN packet: [Session ID][Encrypted][HMAC]
+        """
         payload_hmac = generate_hmac(encrypted_payload, auth_token)
-        len_field = vpn_protocol.build_len_field(payload_hmac + encrypted_payload)
-        return len_field + encrypted_payload + payload_hmac
+        return session_id + encrypted_payload + payload_hmac
 
     @staticmethod
-    def extract_vpn_packet(packet: bytes, auth_token) -> bytes | None:
-        len_field = packet[:2]
-        encrypted_packet = packet[2:-32]  # Remove the last 32 bytes for HMAC
-        hmac_field = packet[-32:]  # Last 32 bytes for SHA256 HMAC
+    def extract_vpn_packet(packet: bytes, auth_token: bytes) -> bytes | None:
+        """
+        Extract and verify the encrypted part from received VPN UDP packet.
+        """
+        encrypted_packet = packet[vpn_protocol.SESSION_ID_FIELD_SIZE:-vpn_protocol.HMAC_SIZE]
+        hmac_field = packet[-vpn_protocol.HMAC_SIZE:]
+
         if verify_hmac(encrypted_packet, hmac_field, auth_token):
             return encrypted_packet
-        return None  # Return None if verification fails
+        return None
+    
+    def extract_session_id (packet: bytes) -> bytes:
+        """
+        Extract Session id from received VPN UDP packet.
+        """
+        return packet[:vpn_protocol.SESSION_ID_FIELD_SIZE]
 
     @staticmethod
-    def build_vpn_packet(packet: bytes, version: int = 1) -> bytes:
-        # Pack the version as a single byte
-        version_byte = struct.pack('B', version)  # 'B' stands for unsigned char (1 byte)
-        return version_byte + packet
+    def build_vpn_packet(inner_payload: bytes, version: int = 1) -> bytes:
+        """
+        Add version header and wrap inner payload.
+        """
+        version_byte = struct.pack('B', version)
+        return version_byte + inner_payload
 
     @staticmethod
     def extract_payload(packet: bytes) -> bytes | None:
+        """
+        Validate and return decrypted payload (excluding version byte).
+        """
         if vpn_protocol.verify_vpn_packet(packet):
             return packet[1:]
         return None
 
     @staticmethod
     def verify_vpn_packet(packet: bytes, version: int = 1) -> bool:
-        return version == packet[0]
+        return packet[0] == version
 
-    #error packets
-    #Build error or something
+    @staticmethod
+    def build_error_packet(error_message: str, session_id: bytes = b'ERR!', aes_key: bytes = None, auth_token: bytes = None) -> bytes:
+        """
+        Builds a VPN error packet. If AES key and auth_token are provided, it encrypts and adds HMAC.
+        Otherwise, sends plaintext (for unauthorized clients).
+        """
+        payload = f"ERROR:{error_message}".encode()
 
-import os
-def main():
-    print("test starts here\n\n")
-    # Test data for the packet
-    data = b"Hello, World!"  # Data (13 bytes)
-    
-    # Generate a random authentication token (16 bytes)
-    auth_token = os.urandom(16)
-    
-    # Test the VPN Protocol Build & Packet Creation
-    vpn = vpn_protocol()
-    
-    # Build the VPN packet with the data
-    vpn_packet = vpn.build_vpn_packet(data)
-    print(f"Built VPN Packet: {vpn_packet}")
-
-    aes_key = os.urandom(32)
-    encrypted_data = aes_encrypt(aes_key, vpn_packet)  # Using a random AES key for encryption
-
-    # Build UDP packet with HMAC and length field
-    udp_packet = vpn.build_udp_packet(encrypted_data, auth_token)
-    print(f"Built UDP Packet with HMAC and Length Field: {udp_packet}")
-
-
-    # Extract the VPN packet and verify HMAC
-    extracted_vpn_packet = vpn.extract_vpn_packet(udp_packet, auth_token)
-    if extracted_vpn_packet:
-        print(f"Extracted VPN Packet: {extracted_vpn_packet}")
-        print(vpn.extract_payload(aes_decrypt(aes_key, extracted_vpn_packet)))
-    else:
-        print("HMAC verification failed!")
-
-if __name__ == "__main__":
-    main()
+        if aes_key and auth_token:
+            vpn_payload = vpn_protocol.build_vpn_packet(payload)
+            encrypted_payload = aes_encrypt(aes_key, vpn_payload)
+            hmac_field = generate_hmac(encrypted_payload, auth_token)
+            return session_id + encrypted_payload + hmac_field
+        else:
+            # Fallback: Plain error (unauthenticated), padded to match general packet structure
+            return session_id + payload  # No encryption, no HMAC

@@ -32,6 +32,12 @@ class Device:
     def write(self, data: bytes) -> None:
         os.write(self._ftun, data)
 
+    def fileno(self) -> int:
+        """
+        Return the file descriptor number for use with select or poll.
+        """
+        return self._ftun
+
 
 def create_vnet_device(name: str) -> int:
     """Creates TUN (virtual network) device.

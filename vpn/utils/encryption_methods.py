@@ -3,6 +3,9 @@ from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 import os
 
+BLOCK_SIZE = 16  # AES block size
+AES_KEY_SIZE = 32  # AES-256
+
 # RSA Key Generation
 def generate_rsa_keys():
     private_key = rsa.generate_private_key(
@@ -38,7 +41,7 @@ def decrypt_with_rsa(private_key, encrypted_key):
 
 # AES Encryption
 def aes_encrypt(key, plaintext: bytes) -> bytes:
-    iv = os.urandom(16)
+    iv = os.urandom(BLOCK_SIZE)
     cipher = Cipher(algorithms.AES(key), modes.CFB(iv))
     encryptor = cipher.encryptor()
     ciphertext = encryptor.update(plaintext) + encryptor.finalize()
@@ -46,8 +49,8 @@ def aes_encrypt(key, plaintext: bytes) -> bytes:
 
 # AES Decryption
 def aes_decrypt(key, ciphertext: bytes) -> bytes:
-    iv = ciphertext[:16]
-    actual_ciphertext = ciphertext[16:]
+    iv = ciphertext[:BLOCK_SIZE]
+    actual_ciphertext = ciphertext[BLOCK_SIZE:]
     cipher = Cipher(algorithms.AES(key), modes.CFB(iv))
     decryptor = cipher.decryptor()
     plaintext = decryptor.update(actual_ciphertext) + decryptor.finalize()

@@ -1,11 +1,13 @@
 from fastapi import FastAPI, HTTPException, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, validator
 from sqlalchemy import create_engine, Column, Integer, String, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
 import jwt
+import asyncio
+from email_validator import validate_email, EmailNotValidError
 
 # === App setup ===
 app = FastAPI()
@@ -40,6 +42,15 @@ class UserSignup(BaseModel):
     username: str
     email: str
     password: str
+
+    @validator('email')
+    def validate_email_format(cls, value):
+        try:
+            # Validate the email format using the email-validator package
+            validate_email(value)
+            return value
+        except EmailNotValidError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid email format: {e}")
 
 class UserLogin(BaseModel):
     username: str
@@ -120,6 +131,23 @@ def get_db():
 def on_startup():
     Base.metadata.create_all(bind=engine)
 
+# === Token Cleanup Background Task ===
+@app.on_event("startup")
+async def start_token_cleanup_task():
+    async def cleanup_expired_tokens():
+        while True:
+            db = SessionLocal()
+            try:
+                now = datetime.utcnow()
+                db.query(Token).filter(Token.expires_at < now).delete()
+                db.commit()
+            finally:
+                db.close()
+                print("Cleaned expired tokens.")
+            await asyncio.sleep(3600)  # Run every hour
+
+    asyncio.create_task(cleanup_expired_tokens())
+
 # === Routes ===
 @app.post("/signup")
 def signup(user: UserSignup, db: Session = Depends(get_db)):
@@ -128,12 +156,9 @@ def signup(user: UserSignup, db: Session = Depends(get_db)):
         auth_service.signup(user.username, user.email, user.password)
         return {"message": "User registered successfully"}
     except HTTPException as e:
-        # Re-raise the error with its original status and detail
         raise HTTPException(status_code=e.status_code, detail=e.detail)
-    except Exception as e:
-        # Unexpected error (e.g., DB crash, etc.)
+    except Exception:
         raise HTTPException(status_code=500, detail="Internal Server Error")
-
 
 @app.post("/login")
 def login(user: UserLogin, db: Session = Depends(get_db)):
@@ -145,7 +170,6 @@ def login(user: UserLogin, db: Session = Depends(get_db)):
         raise HTTPException(status_code=e.status_code, detail=e.detail)
     except Exception:
         raise HTTPException(status_code=500, detail="Login failed due to a server error")
-
 
 @app.post("/validate_token")
 def validate_token(data: TokenValidation, db: Session = Depends(get_db)):

@@ -99,3 +99,26 @@ Final Shared AES Key:
 
 After successful authentication, the server and client agree on a final AES key.
 This AES key can now be used to secure all further communication between the client and server.
+
+
+
+┌──────────────────────┐                        ┌──────────────────────┐
+│      VPN Client      │                        │      VPN Server      │
+│                      │                        │                      │
+│  ┌───────────────┐   │  TCP: Handshake        |   ┌───────────────┐  │
+│  │ RSA + AES Key │◄──────────────────────────────►│ RSA + AES Key │  │
+│  └───────────────┘   │                        |   └───────────────┘  │
+│         ▲            │                        |          ▲           │
+│         │ AES Key    │                        |          │ AES Key   │
+│         ▼            │                        |          ▼           │
+│  ┌───────────────┐   │   UDP: Encrypted VPN   |   ┌───────────────┐  |
+│  │   UDP Socket  │◄──────────────────────────────►│   UDP Socket  │  |
+│  └───────────────┘   │       Data Packets     |   └───────────────┘  |
+│         ▲            │                        |          ▲           │
+│         │            │                        |          │           │
+│  ┌───────────────┐   │                        │   ┌───────────────┐  |
+│  │   TUN Device  │◄──────────────────────────────►│   TUN Device  │  |
+│  └───────────────┘   │                        │   └───────────────┘  |
+└──────────────────────┘                        └──────────────────────┘
+
+

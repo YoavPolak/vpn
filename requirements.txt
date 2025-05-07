@@ -7,3 +7,5 @@ sqlalchemy
 passlib[bcrypt] 
 pyjwt
 cryptography
+email-validator
+flet

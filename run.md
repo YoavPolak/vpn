@@ -11,7 +11,8 @@ To start the **Central Server**, navigate to the server directory and run the `u
 
 ```bash
 cd ./central_server
-uvicorn central_server:app --host 0.0.0.0 --reload
+openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes
+uvicorn central_server:app --host 0.0.0.0 --port 8443 --ssl-keyfile=key.pem --ssl-certfile=cert.pem
 ```
 
 - **Explanation**: The `cd ./central_server` command navigates to the directory where the server code is located. The `uvicorn` command starts the FastAPI application with `--reload` to automatically reload the server when you make changes to the code.

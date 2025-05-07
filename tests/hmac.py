@@ -24,7 +24,7 @@ import hashlib
 import hmac
 
 # Function to generate HMAC using the auth token
-def generate_hmac(data: bytes, auth_token: bytes):
+def generate_hmac(data: bytes, auth_token: bytes) -> bytes:
     return hmac.new(auth_token, data, hashlib.sha256).digest()
 
 # Function to verify HMAC
