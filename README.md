@@ -66,7 +66,7 @@ sudo ip route add default dev tun1` Need to do it after the tun is built
 ```
 
 # Project documentation
-
+```
 projoect-root/
 ├── README.md
 ├── requirements.txt
@@ -107,7 +107,9 @@ projoect-root/
     │   ├── hmac_utils.py
     │   └── vpn_protocol.py
     └── tun.py
+```
 
+## Flow chart
 ```
 ┌──────────────────────┐                        ┌──────────────────────┐
 │      VPN Client      │                        │      VPN Server      │
