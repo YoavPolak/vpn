@@ -9,3 +9,4 @@ pyjwt
 cryptography
 email-validator
 flet
+flet[desktop]

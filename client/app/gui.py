@@ -2,8 +2,8 @@ import flet as ft
 from flet import Colors, icons
 import threading
 import re
-from .vpn_client import VPNClient
-from .tcp_handshake_client import SecureTCPClient
+from client.core.vpn_client import VPNClient
+from client.core.handshake_client import SecureTCPClient
 
 class PiperVPNApp:
     def __init__(self, page: ft.Page):
@@ -194,7 +194,6 @@ class PiperVPNApp:
         self.page.go("/")
 
 
-#TODO show errors
 def main(page: ft.Page):
     PiperVPNApp(page)
 

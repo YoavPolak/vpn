@@ -38,6 +38,15 @@ class Device:
         """
         return self._ftun
 
+    def close(self) -> None:
+        if self._ftun is not None:
+            try:
+                os.close(self._ftun)
+                self._ftun = None
+            except OSError as e:
+                import logging
+                logging.error(f"Failed to close TUN device: {e}")
+
 
 def create_vnet_device(name: str) -> int:
     """Creates TUN (virtual network) device.
@@ -60,6 +69,8 @@ def set_addr(dev_name: str, addr: str) -> None:
 
     # Assign IP to the interface with /24 subnet
     subprocess.check_call(f'ifconfig {dev_name} {addr} netmask 255.255.255.0 up', shell=True) #maybe change it to peer to peer
+    # if prod: #TODO
+    #     subprocess.check_call(f'ip route add default dev {dev_name}', shell=True)
     print(f'{dev_name} configured with IP {addr}/24 and brought up successfully.')
 
 

@@ -1,24 +1,23 @@
 import socket
 import time
-from threading import Thread, Timer, Lock
+from threading import Thread, Lock
 import logging
-from enum import Enum, auto
 from typing import Tuple
-from cryptography.hazmat.primitives.asymmetric import rsa, padding
-from cryptography.hazmat.primitives import serialization, hashes
-from vpn.utils.encryption_methods import *
-from vpn.utils.valid_ip import is_valid_ip
 import requests
 from requests.exceptions import RequestException
 import os
-from .vpn_protocol import vpn_protocol as proto
-from .tcp_handshake_client import SecureTCPClient
+from queue import Queue
+from concurrent.futures import ThreadPoolExecutor
+
+#module imports
+from vpn.protocol.vpn_protocol import VPNProtocol as proto
+from .handshake_client import TCPClient
+from utils.encryption_methods import aes_decrypt, aes_encrypt
+from utils.valid_ip import is_valid_ip
 
 from vpn import tun, ip, net
 
-from enum import Enum, auto
-from queue import Queue
-from concurrent.futures import ThreadPoolExecutor
+
 
 
 class VPNClient:
@@ -273,7 +272,7 @@ def main() -> None:
     vpn_client.receive_token(test, test, "localhost")
 
     #Handshake
-    client = SecureTCPClient(auth_token=vpn_client.auth_token)
+    client = TCPClient(auth_token=vpn_client.auth_token)
     vpn_client.session_id, vpn_client.aes_key = client.perform()
 
     print("[*] Client connection closed.")

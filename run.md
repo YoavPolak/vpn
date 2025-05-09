@@ -1,4 +1,4 @@
-```markdown
+
 # Setup Commands
 
 This document contains the setup commands for various components of the system, including the **Central Server**, **VPN Server**, **VPN Client**, and instructions for **Testing VPN Connectivity**.
@@ -10,24 +10,25 @@ This document contains the setup commands for various components of the system, 
 To start the **Central Server**, navigate to the server directory and run the `uvicorn` command to launch the server with automatic reloading:
 
 ```bash
-cd ./central_server
+cd ./servers/central_server
 openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes
 uvicorn central_server:app --host 0.0.0.0 --port 8443 --ssl-keyfile=key.pem --ssl-certfile=cert.pem
 ```
 
-- **Explanation**: The `cd ./central_server` command navigates to the directory where the server code is located. The `uvicorn` command starts the FastAPI application with `--reload` to automatically reload the server when you make changes to the code.
+- **Explanation**: The `cd ./servers/central_server` command navigates to the directory where the server code is located. The `uvicorn` command starts the FastAPI application with `--reload` to automatically reload the server when you make changes to the code.
 
 ---
 
 ## **VPN Server**
 
-To start the **VPN Server**, run the following command with `sudo` privileges:
+To start the **VPN Servers**, run the following command with `sudo` privileges:
 
 ```bash
-sudo python3 -m tests.test_server
+sudo bash ./tools/setup_server_nat.sh 
+sudo $(which python3) -m start_servers
 ```
 
-- **Explanation**: The `sudo python3 -m tests.test_server` command runs the `test_server` module from the `tests` folder. The `sudo` ensures the command is executed with elevated privileges, which may be required to manage networking and VPN operations.
+- **Explanation**: The `sudo $(which python3) -m start_servers` command runs the `start_servers` module from the `project root` folder. The `sudo` ensures the command is executed with elevated privileges, which may be required to manage networking and VPN operations.
 
 ---
 
@@ -36,10 +37,11 @@ sudo python3 -m tests.test_server
 To start the **VPN Client**, execute the following command:
 
 ```bash
-sudo python3 -m tests.test_client
+sudo bash ./tools/setup_client_nat.sh 
+sudo $(which python3) -m client.app.main
 ```
 
-- **Explanation**: Similar to the VPN server, this command launches the `test_client` module from the `tests` folder, which will configure and initiate the VPN client. Again, `sudo` is required for the necessary permissions.
+- **Explanation**: Similar to the VPN servers, this command launches the `main` module from the `client/app` folder, which will configure and initiate the VPN client. Again, `sudo` is required for the necessary permissions.
 
 ---
 
@@ -59,6 +61,8 @@ ping -I tun1 google.com
 
 These commands will help you set up and test the central server, VPN server, VPN client, and VPN connectivity. Be sure to follow each step carefully and ensure you have the necessary permissions to run commands with `sudo`.
 
-`sudo ip route add default dev tun1` Need to do it after the tun is built
+
 ---
+```bash
+sudo ip route add default dev tun1` Need to do it after the tun is built
 ```

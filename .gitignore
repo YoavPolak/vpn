@@ -1,1 +1,18 @@
-./pypacker/
+# Ignore virtual environment
+.venv/
+
+# Ignore compiled Python cache files
+__pycache__/
+**/__pycache__/
+
+# Ignore .pyc files just in case
+*.pyc
+
+# Ignore backup/old version directories
+.old_version/
+
+# Ignore external dependencies or dev packages
+pypacker/
+
+# (Optional) Ignore database files
+# *.db

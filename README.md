@@ -1,63 +1,130 @@
-- **AES-256** is used to encrypt the **application data** (payload) inside the **VPN packet**. This keeps the data secure while it's in transit.
-- The **UDP packet** just acts as a transport layer and doesn't encrypt its contents. It simply carries the already encrypted **VPN packet** (which includes the encrypted payload).
-- So, **there’s only one AES key** used for encrypting the payload inside the VPN packet, not for the UDP headers.
 
-The **UDP layer** doesn’t handle encryption—it just transmits the encrypted VPN packet.
+# Setup Commands
 
-1. RSA || Diffie Hellman key exchange probably DH
-2. verify session key
-3. aes key exchange
-4. tunneling
-
-sudo ip route add default dev tun1
-
-When you're experiencing slow performance with your VPN server (such as when curling YouTube), there are several areas you can optimize to improve performance. Here are some key suggestions:
-
-### 1. **Reduce Encryption Overhead**:
-   - **AES Key Exchange**: If your server is using RSA encryption to exchange AES keys during the handshake, ensure that this process is efficient. RSA operations (encryption/decryption) are computationally expensive, and the handshake process may be a bottleneck.
-     - Use a more efficient key exchange mechanism (e.g., Elliptic Curve Diffie-Hellman (ECDH)) for better performance.
-     - Consider reducing the key size for RSA (e.g., 2048-bit or 3072-bit) depending on your security needs.
-
-   - **Optimize AES Encryption**: If you're using AES encryption for each packet, make sure you're using an efficient AES mode like GCM (which is authenticated and efficient). AES-CBC, for instance, has additional overhead, especially when it comes to handling padding and IVs (Initialization Vectors).
-
-     - Ensure you're using hardware acceleration (if available) for AES operations.
-
-### 2. **Network Protocol Optimization**:
-   - **UDP Size**: The `recvfrom(1549)` in your code seems like it may be limiting the packet size. This could cause fragmentation, and fragmentation introduces overhead in the network and additional CPU cycles to reassemble the packets. Ensure you're using an optimal packet size (usually 1500 bytes or below for UDP, but depends on your specific network MTU).
-   - **Protocol Handling**: The amount of processing you're doing on each packet (e.g., encryption, decryption, verifying tokens, etc.) adds up. Minimizing the amount of processing required per packet can help improve performance. 
-
-### 3. **Optimize the Handshake and Authentication**:
-   - **Token Verification**: The token verification process (`verify_auth_token`) involves sending an HTTP request to an external server. This can introduce significant latency, especially if the server is far away or the network is slow. You may consider:
-     - **Caching token expiration times**: To avoid sending requests for every connection, cache token expiration times in your database or memory.
-     - **Parallelize Authentication**: If you're handling multiple clients, try to ensure that the token verification and RSA decryption do not block other threads.
-   
-### 4. **Reduce Latency in Handling Data**:
-   - **Efficient NAT Handling**: The NAT operations (`_nat.in_`, `_nat.out`) could be adding some latency. Check if these operations can be optimized for faster lookups or avoid unnecessary re-processing of the same packets.
-   - **Direct Tunnel Device Access**: Ensure the tunnel device (`tun_device`) is accessed in a way that minimizes blocking operations or redundant data copies. Using `select()` or `poll()` to handle non-blocking I/O might help.
-
-### 5. **Asynchronous Packet Handling**:
-   - **Concurrency Improvements**: You're using threads to handle each packet, which can lead to overhead from context switching and memory usage. Consider using an **asynchronous model** or a thread pool (with a fixed number of worker threads). This can reduce the overhead caused by creating a new thread for each packet.
-     - Look into using libraries like `asyncio` for non-blocking I/O, or employ a thread pool to limit the number of threads.
-
-### 6. **Optimize Data Transfer**:
-   - **Compression**: If the data you're transferring is compressible (such as text), adding compression (like gzip) before encrypting and transmitting can reduce the amount of data to send over the network, potentially improving performance.
-
-   - **Buffering and Packetization**: If you're transmitting many small packets, consider buffering and combining them into larger packets before sending them. This reduces overhead related to multiple UDP datagrams.
-
-### 7. **Reduce Logging/Debugging Overhead**:
-   - If you're running with verbose logging (e.g., `logging.debug`), it may slow down packet processing, especially if there's a large number of packets. You might want to disable or reduce the verbosity of logging in production to minimize the overhead.
-
-### 8. **Measure and Profile**:
-   - **Profiling**: Use a profiler to identify which part of the code is slowest (e.g., `cProfile`, `line_profiler`). This can help pinpoint specific bottlenecks (e.g., encryption, token verification, packet handling).
-   - **Network Latency**: Ensure that the server itself isn't overloaded and that the network connection between the client and the server is stable and fast. This includes checking bandwidth, latency, and packet loss.
+This document contains the setup commands for various components of the system, including the **Central Server**, **VPN Server**, **VPN Client**, and instructions for **Testing VPN Connectivity**.
 
 ---
 
-### Key Steps to Take:
-1. **Use efficient encryption (AES-GCM instead of CBC)** and make sure you're using hardware acceleration.
-2. **Optimize the token verification** process (cache tokens, avoid HTTP requests for every packet).
-3. **Use asynchronous processing** or thread pooling to handle packets more efficiently.
-4. **Reduce logging** and debug statements in production.
-5. **Profile** your application to identify performance bottlenecks.
+## **Central Server**
 
-If you're looking for specific improvements in encryption and packet handling, I can help you further refine certain areas like AES encryption/decryption, NAT handling, or async processing. Let me know!
+To start the **Central Server**, navigate to the server directory and run the `uvicorn` command to launch the server with automatic reloading:
+
+```bash
+cd ./servers/central_server
+openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes
+uvicorn central_server:app --host 0.0.0.0 --port 8443 --ssl-keyfile=key.pem --ssl-certfile=cert.pem
+```
+
+- **Explanation**: The `cd ./servers/central_server` command navigates to the directory where the server code is located. The `uvicorn` command starts the FastAPI application with `--reload` to automatically reload the server when you make changes to the code.
+
+---
+
+## **VPN Server**
+
+To start the **VPN Servers**, run the following command with `sudo` privileges:
+
+```bash
+sudo $(which python3) -m start_servers
+```
+
+- **Explanation**: The `sudo $(which python3) -m start_servers` command runs the `start_servers` module from the `project root` folder. The `sudo` ensures the command is executed with elevated privileges, which may be required to manage networking and VPN operations.
+
+---
+
+## **VPN Client**
+
+To start the **VPN Client**, execute the following command:
+
+```bash
+sudo $(which python3) -m client.app.main
+```
+
+- **Explanation**: Similar to the VPN servers, this command launches the `main` module from the `client/app` folder, which will configure and initiate the VPN client. Again, `sudo` is required for the necessary permissions.
+
+---
+
+## **Test VPN Connectivity**
+
+To test the VPN connection, use the following command to ping a remote server via the `tun1` interface:
+
+```bash
+ping -I tun1 google.com
+```
+
+- **Explanation**: The `ping -I tun1 google.com` command sends a ping request through the `tun1` interface (typically used for VPN connections) to `google.com`. This helps verify that the VPN connection is active and that you can access external websites through the VPN.
+
+---
+
+## Conclusion
+
+These commands will help you set up and test the central server, VPN server, VPN client, and VPN connectivity. Be sure to follow each step carefully and ensure you have the necessary permissions to run commands with `sudo`.
+
+
+---
+```bash
+sudo ip route add default dev tun1` Need to do it after the tun is built
+```
+
+# Project documentation
+
+projoect-root/
+├── README.md
+├── requirements.txt
+├── client/
+│   ├── app/
+│   │   ├── gui.py
+│   │   └── main.py
+│   └── core/
+│       ├── handshake_client.py
+│       └── vpn_client.py
+├── database/
+│   ├── session_data.db
+│   └── session_db.py
+├── servers/
+│   ├── central_server/
+│   │   ├── central_server.py
+│   │   ├── cert.pem
+│   │   ├── key.pem
+│   │   └── users.db
+│   ├── handshake_server/
+│   │   └── handshake_server.py
+│   └── vpn_server/
+│       └── vpn_server.py
+├── start_servers.py
+|
+├── tools/
+│   ├── setup_client_nat.sh
+│   └── setup_server_nat.sh
+├── utils/
+│   ├── encryption_methods.py
+│   └── valid_ip.py
+└── vpn/
+    ├── __init__.py
+    ├── ip.py
+    ├── logs.py
+    ├── net.py
+    ├── protocol/
+    │   ├── hmac_utils.py
+    │   └── vpn_protocol.py
+    └── tun.py
+
+```
+┌──────────────────────┐                        ┌──────────────────────┐
+│      VPN Client      │                        │      VPN Server      │
+│                      │                        │                      │
+│  ┌───────────────┐   │  TCP: Handshake        |   ┌───────────────┐  │
+│  │ RSA + AES Key │◄──────────────────────────────►│ RSA + AES Key │  │
+│  └───────────────┘   │                        |   └───────────────┘  │
+│         ▲            │                        |          ▲           │
+│         │ AES Key    │                        |          │ AES Key   │
+│         ▼            │                        |          ▼           │
+│  ┌───────────────┐   │   UDP: Encrypted VPN   |   ┌───────────────┐  |
+│  │   UDP Socket  │◄──────────────────────────────►│   UDP Socket  │  |
+│  └───────────────┘   │       Data Packets     |   └───────────────┘  |
+│         ▲            │                        |          ▲           │
+│         │            │                        |          │           │
+│  ┌───────────────┐   │                        │   ┌───────────────┐  |
+│  │   TUN Device  │◄──────────────────────────────►│   TUN Device  │  |
+│  └───────────────┘   │                        │   └───────────────┘  |
+└──────────────────────┘                        └──────────────────────┘
+```
