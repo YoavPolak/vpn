@@ -8,5 +8,5 @@ passlib[bcrypt]
 pyjwt
 cryptography
 email-validator
-flet
+flet==0.27.6
 flet[desktop]

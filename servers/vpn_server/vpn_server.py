@@ -123,6 +123,7 @@ class UDPServer:
                 if not self.db.session_exists(session_id):
                     logging.warning(f"[UDP] Unauthorized packet from {client_addr}")
                     self.send_error_response(client_addr, "Unauthorized client.")
+                    print(packet)
                     return
 
                 if client_addr not in self._client_sessions:
@@ -167,7 +168,7 @@ class UDPServer:
 
             # Translate and enqueue the packet to the TUN writer
             new_tun_ip = self._addr_allocator.new(hash(client_addr))
-            print(new_tun_ip)
+            # print(new_tun_ip)
             self._nat.out(packet, new_tun_ip, client_addr)
 
             self._tun_write_queue.put(packet)  # Enqueue packet for TUN writer thread

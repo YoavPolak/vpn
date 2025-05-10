@@ -3,7 +3,7 @@ from flet import Colors, icons
 import threading
 import re
 from client.core.vpn_client import VPNClient
-from client.core.handshake_client import SecureTCPClient
+from client.core.handshake_client import TCPClient
 
 class PiperVPNApp:
     def __init__(self, page: ft.Page):
@@ -107,7 +107,7 @@ class PiperVPNApp:
         if success:
             self.status_text.value = "Login successful!"
             self.status_text.color = Colors.GREEN_500
-            tcp_client = SecureTCPClient(auth_token=self.vpn_client.auth_token)
+            tcp_client = TCPClient(auth_token=self.vpn_client.auth_token)
             self.vpn_client.session_id, self.vpn_client.aes_key = tcp_client.perform()
             self.page.go("/dashboard")
         else:
@@ -194,8 +194,8 @@ class PiperVPNApp:
         self.page.go("/")
 
 
-def main(page: ft.Page):
-    PiperVPNApp(page)
+# def main(page: ft.Page):
+#     PiperVPNApp(page)
 
-# ft.app(target=main, view=ft.WEB_BROWSER)
-ft.app(target=main)
+# # ft.app(target=main, view=ft.WEB_BROWSER)
+# ft.app(target=main)
