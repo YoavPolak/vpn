@@ -1,3 +1,4 @@
+![PiperVPN Logo](./PiperVPN.png)
 
 # Setup Commands
 
