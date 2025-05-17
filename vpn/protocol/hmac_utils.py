@@ -24,9 +24,33 @@ import hmac
 
 # Function to generate HMAC using the auth token
 def generate_hmac(data: bytes, auth_token: bytes) -> bytes:
+    """
+    Generate a Hash-based Message Authentication Code (HMAC) using SHA-256.
+
+    Args:
+    - data: The data to be authenticated (usually the payload).
+    - auth_token: The secret key used for generating the HMAC.
+    
+    Returns:
+    - The HMAC value (a byte string).
+    """
+    # Use HMAC with SHA-256 to generate the HMAC for the provided data and auth_token
     return hmac.new(auth_token, data, hashlib.sha256).digest()
 
 # Function to verify HMAC
 def verify_hmac(data: bytes, received_hmac: bytes, auth_token: bytes) -> bool:
+    """
+    Verify if the received HMAC matches the expected HMAC for the given data.
+
+    Args:
+    - data: The data whose authenticity needs to be verified.
+    - received_hmac: The HMAC received with the data, which needs to be validated.
+    - auth_token: The secret key used to generate the expected HMAC.
+
+    Returns:
+    - True if the received HMAC matches the expected HMAC, False otherwise.
+    """
+    # Generate the expected HMAC for the provided data and auth_token
     expected_hmac = generate_hmac(data, auth_token)
+    # Use hmac.compare_digest to securely compare the expected and received HMACs
     return hmac.compare_digest(expected_hmac, received_hmac)

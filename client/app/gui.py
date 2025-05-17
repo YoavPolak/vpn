@@ -5,8 +5,22 @@ import re
 from client.core.vpn_client import VPNClient
 from client.core.handshake_client import TCPClient
 
+
 class PiperVPNApp:
+    """
+    A graphical user interface for PiperVPN using Flet.
+
+    Handles login, signup, and dashboard screens along with
+    starting/stopping the VPN client.
+    """
+
     def __init__(self, page: ft.Page):
+        """
+        Initialize the PiperVPNApp UI.
+
+        Args:
+            page (ft.Page): The Flet page object.
+        """
         self.page = page
         self.page.title = "PiperVPN"
         self.page.bgcolor = Colors.GREY_900
@@ -19,16 +33,21 @@ class PiperVPNApp:
         self.vpn_thread = None
         self.vpn_client = None
 
+        # UI fields
         self.domain = ft.TextField(label="Server Domain", value="localhost", width=300, color=Colors.WHITE)
         self.username = ft.TextField(label="Username", width=300, color=Colors.WHITE)
         self.password = ft.TextField(label="Password", password=True, can_reveal_password=True, width=300, color=Colors.WHITE)
         self.email = ft.TextField(label="Email", width=300, color=Colors.WHITE)
         self.status_text = ft.Text("", size=18, color=Colors.WHITE)
 
+        # Setup route handling
         self.page.on_route_change = self.route_change
         self.page.go(self.page.route or "/")
 
     def clear_fields(self):
+        """
+        Reset all input fields and status messages.
+        """
         self.domain.value = "localhost"
         self.username.value = ""
         self.password.value = ""
@@ -36,6 +55,9 @@ class PiperVPNApp:
         self.status_text.value = ""
 
     def route_change(self, e):
+        """
+        Handle route changes and update UI accordingly.
+        """
         if self.page.route == "/signup":
             self.build_signup_ui()
         elif self.page.route == "/dashboard":
@@ -44,6 +66,9 @@ class PiperVPNApp:
             self.build_login_ui()
 
     def build_login_ui(self):
+        """
+        Display the login UI components.
+        """
         self.clear_fields()
         self.page.controls.clear()
         self.page.add(
@@ -68,6 +93,9 @@ class PiperVPNApp:
         self.page.update()
 
     def build_signup_ui(self):
+        """
+        Display the sign-up UI components.
+        """
         self.clear_fields()
         self.page.controls.clear()
         self.page.add(
@@ -93,6 +121,9 @@ class PiperVPNApp:
         self.page.update()
 
     def login(self, e):
+        """
+        Perform login and initiate handshake if successful.
+        """
         self.vpn_client = VPNClient(
             tun_device_name='tun1',
             tun_device_ip='10.1.0.1',
@@ -104,23 +135,32 @@ class PiperVPNApp:
             password=self.password.value,
             domain=self.domain.value
         )
+
         if success:
             self.status_text.value = "Login successful!"
             self.status_text.color = Colors.GREEN_500
+
+            # Perform handshake to get session_id and AES key
             tcp_client = TCPClient(auth_token=self.vpn_client.auth_token)
             self.vpn_client.session_id, self.vpn_client.aes_key = tcp_client.perform()
+
             self.page.go("/dashboard")
         else:
             self.status_text.value = "Login failed."
             self.status_text.color = Colors.RED_500
+
         self.page.update()
 
     def signup(self, e):
+        """
+        Validate input and send a sign-up request.
+        """
         username = self.username.value.strip()
         password = self.password.value.strip()
         email = self.email.value.strip()
         domain = self.domain.value.strip()
 
+        # Basic validations
         if len(username) < 4 or not re.match(r"^\w+$", username):
             self.status_text.value = "Username must be 4+ characters (letters/numbers/_ only)"
             self.status_text.color = Colors.RED_500
@@ -134,7 +174,7 @@ class PiperVPNApp:
             self.status_text.value = "Username contains invalid characters."
             self.status_text.color = Colors.RED_500
         else:
-            temp_client = VPNClient('tun1', '10.1.0.1', ('127.0.0.1', 3000))
+            temp_client = VPNClient('tun1', '10.1.0.1', (domain, 3000))
             response = temp_client.signup(
                 domain=domain,
                 username=username,
@@ -151,10 +191,14 @@ class PiperVPNApp:
         self.page.update()
 
     def show_dashboard(self):
+        """
+        Show the dashboard and start the VPN client in a background thread.
+        """
         self.vpn_thread = threading.Thread(target=self.vpn_client.start, daemon=True)
         self.vpn_thread.start()
 
         tun_ip = self.vpn_client.tun_device_ip or "Unavailable"
+
         self.page.controls.clear()
         self.page.add(
             ft.Container(
@@ -181,6 +225,9 @@ class PiperVPNApp:
         self.page.update()
 
     def disconnect(self, e):
+        """
+        Disconnect the VPN client and reset the UI to login.
+        """
         if self.vpn_client:
             self.vpn_client.running = False
         if self.vpn_thread and self.vpn_thread.is_alive():
@@ -192,10 +239,3 @@ class PiperVPNApp:
         self.vpn_thread = None
 
         self.page.go("/")
-
-
-# def main(page: ft.Page):
-#     PiperVPNApp(page)
-
-# # ft.app(target=main, view=ft.WEB_BROWSER)
-# ft.app(target=main)

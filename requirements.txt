@@ -10,3 +10,4 @@ cryptography
 email-validator
 flet==0.27.6
 flet[desktop]
+sqlcipher3==0.5.4

@@ -9,7 +9,20 @@ import threading
 
 
 class TCPClient:
+    """
+    TCPClient handles a secure Diffie-Hellman handshake with the server
+    using asymmetric key exchange and AES symmetric encryption.
+    """
+
     def __init__(self, host='127.0.0.1', port=4443, auth_token="sample_token"):
+        """
+        Initialize the TCP client.
+
+        Args:
+            host (str): Server IP address.
+            port (int): Server TCP port.
+            auth_token (str): Authentication token to identify the client.
+        """
         self.host = host
         self.port = port
         self.auth_token = auth_token
@@ -20,6 +33,16 @@ class TCPClient:
         print("Handshake instance deleted")
 
     def _encrypt(self, key, plaintext):
+        """
+        Encrypt plaintext using AES-CFB mode.
+
+        Args:
+            key (bytes): AES key.
+            plaintext (bytes): Data to encrypt.
+
+        Returns:
+            bytes: IV + ciphertext.
+        """
         try:
             iv = os.urandom(16)
             cipher = Cipher(algorithms.AES(key), modes.CFB(iv))
@@ -30,6 +53,16 @@ class TCPClient:
             return b""
 
     def _decrypt(self, key, ciphertext):
+        """
+        Decrypt AES-CFB encrypted ciphertext.
+
+        Args:
+            key (bytes): AES key.
+            ciphertext (bytes): IV + encrypted data.
+
+        Returns:
+            bytes: Decrypted plaintext.
+        """
         try:
             iv = ciphertext[:16]
             cipher = Cipher(algorithms.AES(key), modes.CFB(iv))
@@ -40,6 +73,15 @@ class TCPClient:
             return b""
 
     def _derive_key(self, shared_key):
+        """
+        Derive a 256-bit key from a shared secret using HKDF.
+
+        Args:
+            shared_key (bytes): The shared key from DH key exchange.
+
+        Returns:
+            bytes: Derived AES key.
+        """
         try:
             return HKDF(
                 algorithm=hashes.SHA256(),
@@ -53,7 +95,15 @@ class TCPClient:
             return None
 
     def _recv_all(self, length):
-        """Ensure full data of specific length is received."""
+        """
+        Receive exact number of bytes from the socket.
+
+        Args:
+            length (int): Number of bytes to receive.
+
+        Returns:
+            bytes: Received data.
+        """
         data = b""
         while len(data) < length:
             chunk = self.socket.recv(length - len(data))
@@ -63,7 +113,19 @@ class TCPClient:
         return data
 
     def perform(self):
+        """
+        Perform the full client-side handshake:
+        - Sends hello
+        - Receives server public key
+        - Sends client public key and token
+        - Derives AES key
+        - Exchanges encrypted messages
+
+        Returns:
+            tuple: (server reply, shared AES key) on success, None otherwise
+        """
         try:
+            # Establish TCP connection
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.socket.connect((self.host, self.port))
         except Exception as e:
@@ -74,7 +136,7 @@ class TCPClient:
             # Step 1: Send "Client Hello"
             self.socket.sendall(b"Client Hello")
 
-            # Step 2: Receive server's public key
+            # Step 2: Receive server's public key (PEM format)
             server_pub_pem = b""
             while True:
                 chunk = self.socket.recv(1024)
@@ -82,6 +144,7 @@ class TCPClient:
                 if b"END PUBLIC KEY-----" in chunk:
                     break
 
+            # Load server's public key
             try:
                 server_public_key = serialization.load_pem_public_key(server_pub_pem, backend=default_backend())
             except Exception as e:
@@ -97,26 +160,25 @@ class TCPClient:
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PublicFormat.SubjectPublicKeyInfo
             )
-
             self.socket.sendall(client_pub_pem)
 
-            # Step 4: Send the auth_token to the server
+            # Step 4: Send auth_token with length prefix
             token_length = len(self.auth_token).to_bytes(4, byteorder='big')
             self.socket.sendall(token_length + self.auth_token.encode('utf-8'))
 
-            # Step 5: Derive shared key
+            # Step 5: Perform key exchange
             shared_key = private_key.exchange(server_public_key)
             self.shared_key = self._derive_key(shared_key)
             if not self.shared_key:
                 return
 
-            # Step 6: Send encrypted message with length prefix
+            # Step 6: Send encrypted test message
             message = b"Hello from secure client!"
             encrypted_message = self._encrypt(self.shared_key, message)
             msg_len = len(encrypted_message).to_bytes(4, byteorder='big')
             self.socket.sendall(msg_len + encrypted_message)
 
-            # Step 7: Receive encrypted reply with length prefix
+            # Step 7: Receive and decrypt reply
             reply_len_bytes = self._recv_all(4)
             reply_len = int.from_bytes(reply_len_bytes, byteorder='big')
             encrypted_reply = self._recv_all(reply_len)
@@ -134,17 +196,25 @@ class TCPClient:
             self.close()
 
     def close(self):
+        """
+        Cleanly close the socket connection.
+        """
         try:
             if self.socket:
                 self.socket.close()
         except Exception as e:
             print(f"[!] Socket close error: {e}")
 
+
 def main():
+    """
+    Entry point for running handshake manually (test mode).
+    """
     auth_token = None
     client = TCPClient(auth_token=auth_token)
     client.perform()
     print("[*] Client connection closed.")
+
 
 if __name__ == '__main__':
     main()
