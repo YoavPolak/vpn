@@ -17,7 +17,8 @@ from utils.valid_ip import is_valid_ip
 
 from vpn import tun, ip, net
 
-
+# Constants
+BUFFER_SIZE = 65535  # Max UDP packet size
 class VPNClient:
     """
     A class to represent a VPN client.
@@ -270,7 +271,7 @@ class VPNClient:
         """
         while self.running:
             try:
-                packet, addr = self.server_sock.recvfrom(4096)
+                packet, addr = self.server_sock.recvfrom(BUFFER_SIZE)
                 logging.info("Received packet from server")
                 payload = self.handle_new_packet_proccessing(packet)
                 if payload is not None:

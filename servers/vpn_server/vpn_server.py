@@ -12,7 +12,8 @@ from vpn import tun, net
 from vpn.protocol.vpn_protocol import VPNProtocol as proto
 from database.session_db import SessionDB
 
-
+# Constants
+BUFFER_SIZE = 65535  # Max UDP packet size
 class UDPServer:
     """
     Handles encrypted communication with clients over UDP, routing traffic through a TUN device.
@@ -63,7 +64,7 @@ class UDPServer:
 
             while True:
                 self.cleanup_clients()
-                packet, client_addr = self._sock.recvfrom(4096)
+                packet, client_addr = self._sock.recvfrom(BUFFER_SIZE)#4096
                 if packet:
                     self.executor.submit(self.on_packet, packet, client_addr)
         except Exception:
