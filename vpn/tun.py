@@ -71,9 +71,9 @@ def netmask_to_prefix(netmask: str) -> int:
     return sum(bin(int(x)).count('1') for x in netmask.split('.'))
 
 
-def set_addr(dev_name: str, addr: str, netmask: str = "255.255.255.0") -> None:
+def set_addr(dev_name: str, addr: str, netmask: str = "255.255.255.0", peer: str = "10.0.0.1") -> None:
     """
-    Assign IP address and bring interface up using 'ip' command.
+    Assign point-to-point IP address and bring interface up using 'ip' command.
     """
     prefix_len = netmask_to_prefix(netmask)
     cidr_addr = f"{addr}/{prefix_len}"
@@ -82,15 +82,16 @@ def set_addr(dev_name: str, addr: str, netmask: str = "255.255.255.0") -> None:
         # Delete existing IP (if any) to avoid errors
         subprocess.run(["ip", "addr", "flush", "dev", dev_name], check=True)
 
-        # Assign IP address
-        subprocess.run(["ip", "addr", "add", cidr_addr, "dev", dev_name], check=True)
+        # ✅ Assign point-to-point IP with peer
+        subprocess.run(["ip", "addr", "add", cidr_addr, "peer", peer, "dev", dev_name], check=True)
 
         # Bring the interface up
         subprocess.run(["ip", "link", "set", dev_name, "up"], check=True)
 
-        logging.info(f"{dev_name} assigned IP {cidr_addr} and brought up successfully.")
+        logging.info(f"{dev_name} assigned IP {cidr_addr} point-to-point with peer {peer} and brought up successfully.")
+
     except subprocess.CalledProcessError as e:
-        logging.error(f"Failed to set IP address on {dev_name}: {e}")
+        logging.error(f"Failed to set point-to-point IP address on {dev_name}: {e}")
 
 
 def add_split_default_routes(dev_name: str, gateway: str = "10.0.0.1") -> None:
@@ -103,11 +104,11 @@ def add_split_default_routes(dev_name: str, gateway: str = "10.0.0.1") -> None:
         subprocess.run(["ip", "route", "del", "128.0.0.0/1"], check=False)
 
         subprocess.run(
-            ["ip", "route", "add", "0.0.0.0/1", "via", gateway, "dev", dev_name],
+            ["ip", "route", "add", "0.0.0.0/1", "via", gateway, "dev", dev_name, "metric", "50"],
             check=True,
         )
         subprocess.run(
-            ["ip", "route", "add", "128.0.0.0/1", "via", gateway, "dev", dev_name],
+            ["ip", "route", "add", "128.0.0.0/1", "via", gateway, "dev", dev_name, "metric", "50"],
             check=True,
         )
         logging.info("Split default routes added successfully.")

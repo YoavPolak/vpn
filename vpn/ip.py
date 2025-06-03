@@ -35,10 +35,14 @@ def packet_version(packet: bytes) -> int:
     Returns:
         int: The version of the IP protocol (4 for IPv4, 6 for IPv6).
     """
-    return packet[0] >> 4  # The first 4 bits of the first byte represent the version
+    try:
+        return packet[0] >> 4  # The first 4 bits of the first byte represent the version
+    except Exception as e:
+        print(f"Error extracting IP version: {e}")
+        raise
 
 
-def parse_packet(data: bytes) -> IP:
+def parse_packet(data: bytes):
     """
     Parses the raw packet and returns an IP object, either IPv4 or IPv6.
 
@@ -51,14 +55,18 @@ def parse_packet(data: bytes) -> IP:
     Raises:
         Exception: If the IP version is unsupported.
     """
-    packet_ver = packet_version(data)
-    if packet_ver == 4:
-        packet = IP(data)  # Parse as IPv4
-    elif packet_ver == 6:
-        packet = IP6(data)  # Parse as IPv6
-    else:
-        raise Exception(f'Unsupported IP packet version: {packet_ver}')
-    return packet
+    try:
+        packet_ver = packet_version(data)
+        if packet_ver == 4:
+            packet = IP(data)  # Parse as IPv4
+        elif packet_ver == 6:
+            packet = IP6(data)  # Parse as IPv6
+        else:
+            raise Exception(f'Unsupported IP packet version: {packet_ver}')
+        return packet
+    except Exception as e:
+        print(f"Error parsing packet: {e}")
+        raise
 
 
 def src_addr(packet: bytes) -> str:
@@ -71,7 +79,11 @@ def src_addr(packet: bytes) -> str:
     Returns:
         str: The source IP address as a string.
     """
-    return parse_packet(packet).src_s  # Get the source address from the parsed packet
+    try:
+        return parse_packet(packet).src_s  # Get the source address from the parsed packet
+    except Exception as e:
+        print(f"Error getting source address: {e}")
+        raise
 
 
 def set_src_addr_ipv6(packet: bytearray, src_addr: str) -> None:
@@ -82,11 +94,15 @@ def set_src_addr_ipv6(packet: bytearray, src_addr: str) -> None:
         packet: The raw IP packet as a bytearray.
         src_addr: The source IP address to set (IPv6 format).
     """
-    ip = IP6(packet)  # Parse the packet as IPv6
-    ip.src_s = src_addr  # Set the source IP address
-    # TODO: find out how to avoid data copying
-    for i, b in enumerate(ip.bin()):
-        packet[i] = b  # Update the original bytearray with the new source address
+    try:
+        ip = IP6(packet)  # Parse the packet as IPv6
+        ip.src_s = src_addr  # Set the source IP address
+        # TODO: find out how to avoid data copying
+        for i, b in enumerate(ip.bin()):
+            packet[i] = b  # Update the original bytearray with the new source address
+    except Exception as e:
+        print(f"Error setting IPv6 source address: {e}")
+        raise
 
 
 def set_src_addr(packet: bytearray, src_addr: str) -> None:
@@ -97,11 +113,15 @@ def set_src_addr(packet: bytearray, src_addr: str) -> None:
         packet: The raw IP packet as a bytearray.
         src_addr: The source IP address to set (IPv4 format).
     """
-    ip = IP(packet)  # Parse the packet as IPv4
-    ip.src_s = src_addr  # Set the source IP address
-    # TODO: find out how to avoid data copying
-    for i, b in enumerate(ip.bin()):
-        packet[i] = b  # Update the original bytearray with the new source address
+    try:
+        ip = IP(packet)  # Parse the packet as IPv4
+        ip.src_s = src_addr  # Set the source IP address
+        # TODO: find out how to avoid data copying
+        for i, b in enumerate(ip.bin()):
+            packet[i] = b  # Update the original bytearray with the new source address
+    except Exception as e:
+        print(f"Error setting IPv4 source address: {e}")
+        raise
 
 
 def dst_addr(packet: bytes) -> str:
@@ -114,34 +134,35 @@ def dst_addr(packet: bytes) -> str:
     Returns:
         str: The destination IP address as a string.
     """
-    return parse_packet(packet).dst_s  # Get the destination address from the parsed packet
+    try:
+        return parse_packet(packet).dst_s  # Get the destination address from the parsed packet
+    except Exception as e:
+        print(f"Error getting destination address: {e}")
+        raise
 
 
 def set_dst_addr(packet: bytearray, dst_addr: str) -> None:
     """
-    Sets the destination IP address for an IPv4 packet.
+    Sets the destination IP address for the given packet, handling both IPv4 and IPv6.
 
     Args:
         packet: The raw IP packet as a bytearray.
-        dst_addr: The destination IP address to set (IPv4 format).
+        dst_addr: The destination IP address to set (IPv4 or IPv6 format).
     """
-    ip = IP(packet)  # Parse the packet as IPv4
-    ip.dst_s = dst_addr  # Set the destination IP address
-    # TODO: find out how to avoid data copying
-    for i, b in enumerate(ip.bin()):
-        packet[i] = b  # Update the original bytearray with the new destination address
+    try:
+        ver = packet_version(packet)
+        if ver == 4:
+            ip = IP(packet)
+            ip.dst_s = dst_addr
+        elif ver == 6:
+            ip = IP6(packet)
+            ip.dst_s = dst_addr
+        else:
+            raise ValueError("Unsupported IP version")
 
-
-def set_dst_addr_ipv6(packet: bytearray, dst_addr: str) -> None:
-    """
-    Sets the destination IP address for an IPv6 packet.
-
-    Args:
-        packet: The raw IP packet as a bytearray.
-        dst_addr: The destination IP address to set (IPv6 format).
-    """
-    ip = IP6(packet)  # Parse the packet as IPv6
-    ip.dst_s = dst_addr  # Set the destination IP address
-    # TODO: find out how to avoid data copying
-    for i, b in enumerate(ip.bin()):
-        packet[i] = b  # Update the original bytearray with the new destination address
+        # Copy modified binary packet back
+        for i, b in enumerate(ip.bin()):
+            packet[i] = b
+    except Exception as e:
+        print(f"Error setting destination address: {e}")
+        raise
