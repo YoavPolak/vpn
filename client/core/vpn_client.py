@@ -60,8 +60,8 @@ class VPNClient:
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.lock = Lock()
         self.running = True
-        
-        self.prod = True
+
+        self.prod = False
 
     def signup(self, domain: str, username, password, email):
         """

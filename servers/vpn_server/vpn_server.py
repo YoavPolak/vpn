@@ -241,7 +241,7 @@ class UDPServer:
         """
         try:
             now = time.time()
-            timeout = 60  # seconds
+            timeout = 10000  # seconds
 
             for client_addr, last_seen in list(self.client_last_seen.items()):
                 if now - last_seen > timeout:

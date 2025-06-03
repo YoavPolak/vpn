@@ -82,6 +82,7 @@ class NAT:
         pkt_ver = ip.packet_version(bytes(packet))
         if pkt_ver == 4:
             ip.set_src_addr(packet, server_tun_ip)
+            print(server_tun_ip)
         elif pkt_ver == 4:
             ip.set_src_addr_ipv6(packet, server_tun_ip)
 
@@ -99,7 +100,7 @@ class NAT:
             pkt_ver = ip.packet_version(bytes(packet))
             if pkt_ver == 4:
                 ip.set_dst_addr(packet, rec.client_tun_ip)
-            elif pkt_ver == 4:
+            elif pkt_ver == 6:
                 ip.set_dst_addr_ipv6(packet, rec.client_tun_ip)
             # ip.set_dst_addr(packet, rec.client_tun_ip)
             return rec.client_addr

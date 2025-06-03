@@ -69,9 +69,25 @@ def set_addr(dev_name: str, addr: str) -> None:
 
     # Assign IP to the interface with /24 subnet
     subprocess.check_call(f'ifconfig {dev_name} {addr} netmask 255.255.255.0 up', shell=True) #maybe change it to peer to peer
-    # if prod: #TODO
-    #     subprocess.check_call(f'ip route add default dev {dev_name}', shell=True)
+    #prod TODO
+    # add_split_default_routes(dev_name)
+
     print(f'{dev_name} configured with IP {addr}/24 and brought up successfully.')
+
+
+def add_split_default_routes(dev_name: str):
+    try:
+        subprocess.run(
+            ["ip", "route", "add", "0.0.0.0/1", "via", "10.0.0.1", "dev", dev_name],
+            check=True
+        )
+        subprocess.run(
+            ["ip", "route", "add", "128.0.0.0/1", "via", "10.0.0.1", "dev", dev_name],
+            check=True
+        )
+        print("Split default routes added successfully.")
+    except subprocess.CalledProcessError as e:
+        print(f"Error adding routes: {e}")
 
 
 # def setup_point_to_point(tun_device: str, local_ip: str, remote_ip: str):

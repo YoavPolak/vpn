@@ -178,7 +178,7 @@ class PiperVPNApp:
     def show_dashboard(self):
         self.vpn_thread = threading.Thread(target=self.vpn_client.start, daemon=True)
         self.vpn_thread.start()
-
+        time.sleep(1)
         self.prev_rx, self.prev_tx = get_tun_stats(self.vpn_client.tun_device_name)
 
         self.page.controls.clear()
