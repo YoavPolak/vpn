@@ -124,11 +124,13 @@ class PiperVPNApp:
             domain=self.domain.value
         )
 
+        self.vpn_client.server_address = (self.domain.value, 3000)
+
         if success:
             self.status_text.value = "Login successful!"
             self.status_text.color = Colors.GREEN_500
 
-            tcp_client = TCPClient(auth_token=self.vpn_client.auth_token)
+            tcp_client = TCPClient(host=self.domain.value ,auth_token=self.vpn_client.auth_token)
             self.vpn_client.session_id, self.vpn_client.aes_key = tcp_client.perform()
 
             self.page.go("/dashboard")

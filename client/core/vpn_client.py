@@ -60,6 +60,8 @@ class VPNClient:
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.lock = Lock()
         self.running = True
+        
+        self.prod = True
 
     def signup(self, domain: str, username, password, email):
         """
@@ -219,8 +221,8 @@ class VPNClient:
                 logging.info("Unable to receive TUN IP, using fallback IP.")
             else:
                 # Future use: dynamically assign the IP
-                # self.tun_device_ip = tun_ip #TODO
-                pass
+                if self.prod:
+                    self.tun_device_ip = tun_ip #TODO
 
             print(f"TUN IP is: {self.tun_device_ip}")
             print(f"Actual TUN IP is: {tun_ip}")
