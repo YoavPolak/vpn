@@ -1,136 +1,148 @@
 import os
-from fcntl import ioctl
 import struct
 import subprocess
 import time
+import logging
+from typing import Optional
 
-
-# Some constants from Linux kernel header if_tun.h
+# Constants from Linux kernel header if_tun.h
 UNIX_TUNSETIFF = 0x400454ca
 UNIX_IFF_TUN = 0x0001
 UNIX_IFF_NO_PI = 0x1000
 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+
 
 class Device:
-    def __init__(self, name, addr: str) -> None:
+    def __init__(self, name: str, addr: str) -> None:
         self.name = name
         self.addr = addr
-
-        self._ftun = None
+        self._ftun: Optional[int] = None
 
     def up(self) -> None:
+        """Create TUN device and assign IP using modern 'ip' commands."""
         self._ftun = create_vnet_device(self.name)
         set_addr(self.name, self.addr)
 
-    def read(self, n: int=1500) -> bytes:
-        """
-        Args:
-            n: bytes to read.
-        """
+    def read(self, n: int = 1500) -> bytes:
+        if self._ftun is None:
+            raise RuntimeError("Device not opened")
         return os.read(self._ftun, n)
 
     def write(self, data: bytes) -> None:
+        if self._ftun is None:
+            raise RuntimeError("Device not opened")
         os.write(self._ftun, data)
 
     def fileno(self) -> int:
-        """
-        Return the file descriptor number for use with select or poll.
-        """
+        if self._ftun is None:
+            raise RuntimeError("Device not opened")
         return self._ftun
 
     def close(self) -> None:
         if self._ftun is not None:
             try:
                 os.close(self._ftun)
+                logging.info(f"TUN device {self.name} closed.")
                 self._ftun = None
             except OSError as e:
-                import logging
                 logging.error(f"Failed to close TUN device: {e}")
 
 
 def create_vnet_device(name: str) -> int:
-    """Creates TUN (virtual network) device.
-
-    Returns:
-        file descriptor used to read/write to device.
     """
-    make_if_req = struct.pack('16sH', name.encode('ascii'),
-                              UNIX_IFF_TUN | UNIX_IFF_NO_PI)
-    fid = os.open('/dev/net/tun', os.O_RDWR)
-    ioctl(fid, UNIX_TUNSETIFF, make_if_req)
-    return fid
+    Create a TUN device and return the file descriptor.
+    """
+    ifreq = struct.pack('16sH', name.encode('ascii'), UNIX_IFF_TUN | UNIX_IFF_NO_PI)
+    fd = os.open('/dev/net/tun', os.O_RDWR)
+    fcntl_ioctl(fd, UNIX_TUNSETIFF, ifreq)
+    logging.info(f"Created TUN device: {name}")
+    return fd
 
 
-def set_addr(dev_name: str, addr: str) -> None:
-    """Associate address with TUN device using subprocess."""
-    # Bring up the network interface (dev_name)
-    subprocess.check_call(f'ifconfig {dev_name} up', shell=True)
-    print(f'{dev_name} brought up successfully.')
-
-    # Assign IP to the interface with /24 subnet
-    subprocess.check_call(f'ifconfig {dev_name} {addr} netmask 255.255.255.0 up', shell=True) #maybe change it to peer to peer
-    #prod TODO
-    # add_split_default_routes(dev_name)
-
-    print(f'{dev_name} configured with IP {addr}/24 and brought up successfully.')
+def fcntl_ioctl(fd: int, request: int, arg) -> None:
+    """Wrapper for fcntl.ioctl to avoid import in global scope."""
+    import fcntl
+    fcntl.ioctl(fd, request, arg)
 
 
-def add_split_default_routes(dev_name: str):
+def netmask_to_prefix(netmask: str) -> int:
+    """Convert netmask like '255.255.255.0' to prefix length, e.g., 24."""
+    return sum(bin(int(x)).count('1') for x in netmask.split('.'))
+
+
+def set_addr(dev_name: str, addr: str, netmask: str = "255.255.255.0") -> None:
+    """
+    Assign IP address and bring interface up using 'ip' command.
+    """
+    prefix_len = netmask_to_prefix(netmask)
+    cidr_addr = f"{addr}/{prefix_len}"
+
     try:
-        subprocess.run(
-            ["ip", "route", "add", "0.0.0.0/1", "via", "10.0.0.1", "dev", dev_name],
-            check=True
-        )
-        subprocess.run(
-            ["ip", "route", "add", "128.0.0.0/1", "via", "10.0.0.1", "dev", dev_name],
-            check=True
-        )
-        print("Split default routes added successfully.")
+        # Delete existing IP (if any) to avoid errors
+        subprocess.run(["ip", "addr", "flush", "dev", dev_name], check=True)
+
+        # Assign IP address
+        subprocess.run(["ip", "addr", "add", cidr_addr, "dev", dev_name], check=True)
+
+        # Bring the interface up
+        subprocess.run(["ip", "link", "set", dev_name, "up"], check=True)
+
+        logging.info(f"{dev_name} assigned IP {cidr_addr} and brought up successfully.")
     except subprocess.CalledProcessError as e:
-        print(f"Error adding routes: {e}")
+        logging.error(f"Failed to set IP address on {dev_name}: {e}")
 
 
-# def setup_point_to_point(tun_device: str, local_ip: str, remote_ip: str):
-#     """Set up a point-to-point connection by assigning IP addresses."""
-#     subprocess.check_call(f'ifconfig {dev_name} up', shell=True)
-#     subprocess.check_call(f'ifconfig {tun_device} {local_ip} pointopoint {remote_ip} up', shell=True)
-# # Device 1: local IP 192.168.100.1, remote IP 192.168.100.2
-# ifconfig tun0 192.168.100.1 pointopoint 192.168.100.2 up
+def add_split_default_routes(dev_name: str, gateway: str = "10.0.0.1") -> None:
+    """
+    Add split default routes so most traffic goes via VPN.
+    """
+    try:
+        # Flush existing routes for those subnets to avoid duplicates
+        subprocess.run(["ip", "route", "del", "0.0.0.0/1"], check=False)
+        subprocess.run(["ip", "route", "del", "128.0.0.0/1"], check=False)
 
-# # Device 2: local IP 192.168.100.2, remote IP 192.168.100.1
-# ifconfig tun0 192.168.100.2 pointopoint 192.168.100.1 up
+        subprocess.run(
+            ["ip", "route", "add", "0.0.0.0/1", "via", gateway, "dev", dev_name],
+            check=True,
+        )
+        subprocess.run(
+            ["ip", "route", "add", "128.0.0.0/1", "via", gateway, "dev", dev_name],
+            check=True,
+        )
+        logging.info("Split default routes added successfully.")
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Error adding split default routes: {e}")
 
 
-
-def test_tun_device():
+def test_tun_device() -> None:
     tun_name = "tun0"
-    tun_ip = "192.168.100.1"  # Ensure this IP is not already assigned
+    tun_ip = "192.168.100.1"  # Make sure this IP is free on your network
 
-    print(f"Creating and bringing up TUN device: {tun_name}")
+    logging.info(f"Creating and bringing up TUN device: {tun_name}")
     device = Device(tun_name, tun_ip)
     device.up()
 
-    # Wait for the device to be fully up and IP address to be assigned
+    # Wait a bit for system to configure device
     time.sleep(2)
 
-    print(f"Setting IP address for {tun_name}: {tun_ip}")
-    set_addr(tun_name, tun_ip)  # Set the address (this should not conflict now)
+    # Optionally add split default routes (uncomment if needed)
+    # add_split_default_routes(tun_name, gateway="192.168.100.2")
 
-    # Wait to allow the data to be processed
-    time.sleep(1)
+    logging.info("Starting to read packets (Ctrl+C to stop)...")
+    try:
+        while True:
+            packet = device.read(1500)
+            logging.debug(f"Read packet: {packet.hex()}")
+            # Here you can add packet processing code
 
-    while True:
-        # Read data from the device
-        print(f"Reading data from {tun_name}")
-        read_data = device.read(1500)
+    except KeyboardInterrupt:
+        logging.info("Interrupted by user, closing device...")
 
-        # Show the raw read data for debugging
-        print(f"Raw Read data: {IP(read_data)}")
+    device.close()
+    logging.info("Test completed.")
 
-    # Clean up: Closing the TUN device (optional)
-    print("Test completed.")
 
-# Run the test
+# Uncomment to run test when this script is executed directly:
 # if __name__ == "__main__":
 #     test_tun_device()
-
