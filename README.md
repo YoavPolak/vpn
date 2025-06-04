@@ -65,6 +65,12 @@ These commands will help you set up and test the central server, VPN server, VPN
 ```bash
 sudo ip route add default dev tun1` Need to do it after the tun is built
 ```
+or
+```bash
+sudo ip route add <vpn_server_ip> via <your_real_gateway_ip> dev <real_interface>
+Example: sudo ip route add 198.51.100.12 via 192.168.1.1 dev wlan0
+sudo ip route add default dev tun0
+```
 
 # Project documentation
 ```
