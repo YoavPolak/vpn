@@ -5,7 +5,10 @@
 This document contains the setup commands for various components of the system, including the **Central Server**, **VPN Server**, **VPN Client**, and instructions for **Testing VPN Connectivity**.
 
 ---
-
+## cd to repo
+```bash
+cd vpn
+```
 ## **Central Server**
 
 To start the **Central Server**, navigate to the server directory and run the `uvicorn` command to launch the server with automatic reloading:
